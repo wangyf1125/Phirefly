@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77", "wheel", "packaging>=24.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phirefly"
+version = "0.1.0a0"
+description = "Phaselet-hyperread haplotype phasing with quantum-inspired QAIA optimization"
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+license = "MIT"
+dependencies = [
+  "numpy",
+  "scipy",
+  "pysam",
+]
+
+[project.optional-dependencies]
+qaia = ["mindquantum"]
+gpu = ["mindquantum", "torch"]
+plot = ["matplotlib"]
+test = ["pytest"]
+all = ["mindquantum", "torch", "matplotlib"]
+
+[project.scripts]
+phirefly = "phirefly.cli:main"
+phirefly-run = "phirefly.pipeline:main"
+phirefly-extract = "phirefly.extract.cli:main"
+phirefly-msf = "phirefly.msf:main"
+phirefly-vcf = "phirefly.vcf:main"
+phirefly-phaselet-qaia = "phirefly.phaselet.cli:main"
+phirefly-hic-edges = "phirefly.hic.component_edges:main"
+phirefly-hic-orient = "phirefly.hic.orient:main"
+phirefly-hic-apply = "phirefly.hic.apply:main"
+phirefly-hic-qc = "phirefly.hic.qc:main"
+
+[tool.setuptools.packages.find]
+include = ["phirefly*"]
+exclude = ["cli*", "examples*", "docs*"]
