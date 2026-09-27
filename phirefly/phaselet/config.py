@@ -20,7 +20,7 @@ def required_inputs(region_key: str, args: argparse.Namespace) -> dict[str, Path
         raise SystemExit("phaselet QAIA requires explicit input paths: " + ", ".join(missing))
     if (args.truth_vcf is None) != (args.input_vcf_plain is None):
         raise SystemExit("--truth-vcf and --input-vcf-plain must be provided together for benchmark metrics")
-    return {
+    inputs = {
         "label": str(args.region_label or region_key),
         "region": str(args.region),
         "observations": Path(args.observations),
@@ -29,6 +29,11 @@ def required_inputs(region_key: str, args: argparse.Namespace) -> dict[str, Path
         "truth_bcf": Path(args.truth_vcf) if args.truth_vcf else None,
         "tau_snp_phases": Path(args.tau_snp_phases),
     }
+    for key in ("observations", "input_vcf_gz", "tau_snp_phases", "input_vcf_plain", "truth_bcf"):
+        path = inputs[key]
+        if path is not None and not path.exists():
+            raise SystemExit(f"missing {key}: {path}")
+    return inputs
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,6 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validation-weight", type=float, default=1.0)
     parser.add_argument("--validation-salt", default="phirefly_phaselet_v3")
     parser.add_argument("--max-qaia-nodes", type=int, default=46_000)
+    parser.add_argument("--trace-every", type=int, default=0, help="Write QAIA trace checkpoints every N iterations; 0 disables tracing.")
+    parser.add_argument("--trace-output", type=Path, help="Optional QAIA trace TSV path. Default: logs/solver_trace.tsv when tracing is enabled.")
     parser.add_argument("--weighted", action="store_true")
     parser.add_argument("--debug-output", action="store_true", help="Write detailed phaselet/hyperread debug TSVs.")
     parser.add_argument("--force", action="store_true")

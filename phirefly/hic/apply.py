@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ..vcf import export_phased_vcf, load_component_phase_sets, load_phases
+from ..vcf import export_phased_vcf, load_component_phase_sets, load_phase_records
 from .components import load_component_orientation_table
 
 
@@ -16,8 +16,11 @@ def write_oriented_snp_phases(
     observations: str | Path,
     component_orientations: str | Path,
 ) -> int:
-    phases = load_phases(snp_phases)
-    components = load_component_phase_sets(observations)
+    phases, components = load_phase_records(snp_phases)
+    if not components:
+        components = load_component_phase_sets(observations)
+    elif set(phases) != set(components):
+        raise ValueError("Phase-set column must cover every predicted SNP")
     orientations, hic_phase_sets = load_component_orientation_table(component_orientations)
     path.parent.mkdir(parents=True, exist_ok=True)
     written = 0

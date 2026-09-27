@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import csv
-import gzip
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 
 from .risk import PhaseEdge, classify_parity_edges, edge_row, soft_edge_rows
+from ..core.io import open_text
 
 
 class DSU:
@@ -191,19 +191,16 @@ def accumulate_adjacent_parity_edges(
     }
 
 
-def open_maybe_gzip(path: Path):
-    if str(path).endswith(".gz"):
-        return gzip.open(path, "rt")
-    return path.open()
-
-
-def load_parity_edges(path: Path) -> dict[tuple[int, int], tuple[float, float, int, float]]:
+def load_parity_edges(path: Path, snp_ids: list[str] | None = None) -> dict[tuple[int, int], tuple[float, float, int, float]]:
     edges: dict[tuple[int, int], tuple[float, float, int, float]] = {}
-    with open_maybe_gzip(path) as fh:
+    index = {s: i for i, s in enumerate(snp_ids)} if snp_ids is not None else None
+    with open_text(path) as fh:
         reader = csv.DictReader(fh, delimiter="\t")
         for row in reader:
-            i = int(row["snp_i"])
-            j = int(row["snp_j"])
+            if index is not None and "snp_id_i" in row and "snp_id_j" in row:
+                i, j = index[row["snp_id_i"]], index[row["snp_id_j"]]
+            else:
+                i, j = int(row["snp_i"]), int(row["snp_j"])
             if i == j:
                 continue
             if i > j:

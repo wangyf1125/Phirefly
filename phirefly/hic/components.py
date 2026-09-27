@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.genomics import parse_snp_id
-from ..vcf import load_component_phase_sets, load_phases
+from ..vcf import load_component_phase_sets, load_phase_records
 
 
 @dataclass(frozen=True)
@@ -25,8 +25,11 @@ def load_component_site_map(
 ) -> tuple[dict[str, dict[int, list[ComponentSite]]], dict[str, list[int]]]:
     """Build chrom/position lookup for phased SNPs and their read-SNP components."""
 
-    phases = load_phases(snp_phases)
-    components = load_component_phase_sets(observations)
+    phases, components = load_phase_records(snp_phases)
+    if not components:
+        components = load_component_phase_sets(observations)
+    elif set(phases) != set(components):
+        raise ValueError("Phase-set column must cover every predicted SNP")
     site_map: dict[str, dict[int, list[ComponentSite]]] = {}
     for snp_id, delta in phases.items():
         component = components.get(snp_id)

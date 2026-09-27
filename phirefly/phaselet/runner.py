@@ -1,289 +1,152 @@
-"""Command-line runner for phaselet/hyperread Phirefly-QAIA.
-
-This module is deliberately input-path driven. The public package does not
-include cluster-specific built-in benchmark paths; Slurm examples pass all
-BAM/VCF-derived inputs explicitly.
-"""
+"""Load evidence, build the final partition, solve once and export the result."""
 
 from __future__ import annotations
 
-import time
+from dataclasses import dataclass
 from pathlib import Path
+import time
 
 import numpy as np
+from scipy import sparse
 
+from ..core.io import read_key_value, require_fresh_output
 from ..core.matrix import build_matrix, load_npz_graph, load_observations
 from ..core.spins import sign_keep_zero
-from ..hyperread.build import build_hyperread_matrix, build_read_entries, split_read_entries
-from ..qaia import algorithm_dt, solve_qaia
+from ..hyperread.build import build_read_entries, split_read_entries
+from ..vcf import export_component_vcf, load_phases
 from .build import build_phaselets, load_parity_edges
 from .config import parse_args, required_inputs
-from .output import (
-    copy_solution_outputs,
-    export_component_vcf,
-    load_phases,
-    read_key_value,
-    read_method_metrics,
-    run_benchmark_metrics,
-    write_config_metrics,
-    write_debug_tables,
-    write_solution,
-)
-from .soft_bridge import build_soft_phaselet_coupling
+from .consistency import relax_phaselets, solve_stage
+from .output import summarize_solution, write_config_metrics, write_debug_output, write_solution
 
-PACKAGE_DIR = Path(__file__).resolve().parents[1]
+
+@dataclass
+class ReadData:
+    read_ids: list[str]
+    snp_ids: list[str]
+    matrix: sparse.csr_matrix
+    train_entries: list
+    train_mask: np.ndarray
+    validation_mask: np.ndarray
+    train_matrix: sparse.csr_matrix
+    validation_matrix: sparse.csr_matrix | None
+    tau: np.ndarray
+    observation_count: int
+
+
+def load_read_data(args, inputs) -> ReadData:
+    path = str(inputs["observations"])
+    if path.endswith(".npz"):
+        read_ids, snp_ids, matrix, entries, count = load_npz_graph(path, args.weighted)
+    else:
+        obs = load_observations(path, args.weighted, "weight")
+        read_ids, snp_ids, matrix = build_matrix(obs)
+        entries, count = build_read_entries(obs, read_ids, snp_ids), len(obs)
+    entries, train_mask, val_mask = split_read_entries(
+        read_ids, entries, validation_fraction=float(args.validation_fraction),
+        validation_salt=str(args.validation_salt))
+    if args.parity_edges is not None and np.any(val_mask):
+        raise SystemExit("--parity-edges cannot be combined with --validation-fraction > 0 unless generated from the same train split")
+    phases = load_phases(inputs["tau_snp_phases"])
+    missing = sum(snp_id not in phases for snp_id in snp_ids)
+    if missing:
+        raise SystemExit(f"missing tau phases for {missing} observed SNPs")
+    tau = np.fromiter((phases[s] for s in snp_ids), dtype=np.int8, count=len(snp_ids))
+    return ReadData(read_ids, snp_ids, matrix, entries, train_mask, val_mask,
+                    matrix[train_mask], matrix[val_mask] if np.any(val_mask) else None, tau, count)
+
+
+def build_initial_phaselets(data, args):
+    parity = load_parity_edges(args.parity_edges, snp_ids=data.snp_ids) if args.parity_edges is not None else None
+    return build_phaselets(
+        data.train_entries, snp_ids=data.snp_ids, tau_vec=data.tau,
+        min_abs_support=float(args.min_abs_support), min_count=int(args.min_count),
+        min_confidence=float(args.min_confidence), max_distance_bp=int(args.max_distance_bp),
+        bridge_mode=args.bridge_mode, risk_threshold=args.risk_threshold,
+        risk_alpha_conf=args.risk_alpha_conf, risk_beta_count=args.risk_beta_count,
+        risk_gamma_conflict=args.risk_gamma_conflict, risk_delta_distance=args.risk_delta_distance,
+        risk_epsilon_domination=args.risk_epsilon_domination, risk_distance_norm_bp=args.risk_distance_norm_bp,
+        soft_bridge_mode=args.soft_bridge_mode, soft_min_abs_support=args.soft_min_abs_support,
+        soft_min_count=args.soft_min_count, soft_min_confidence=args.soft_min_confidence,
+        soft_risk_threshold=args.soft_risk_threshold, parity_edges=parity)
+
+
+def prepare_output(args, region_key) -> Path:
+    outdir = Path(args.outroot) / region_key / f"alg_{args.algorithm}" / f"phaselet_{args.phaselet_config_name}"
+    cached = outdir / "phirefly/phaselet_hyperread_qaia.summary.tsv"
+    if not args.force and cached.exists() and read_key_value(cached).get("pipeline_revision") != "single_cfc_v1":
+        raise ValueError("Existing output is not single-round CFC; use a fresh directory or --force")
+    require_fresh_output(outdir, args.force)
+    for name in ("phirefly", "logs", "paper_metrics"):
+        (outdir / name).mkdir(parents=True, exist_ok=True)
+    return outdir
+
+
+def evaluate_run(args, inputs, outdir) -> dict:
+    """Optional benchmark; metrics never participate in inference or selection."""
+    if inputs["truth_bcf"] is None:
+        return {}
+    from ..metrics import compute_metrics_rows, write_metrics_rows
+
+    path = outdir / "paper_metrics/phaselet_hyperread.metrics.tsv"
+    rows = compute_metrics_rows(
+        input_vcf=inputs["input_vcf_plain"], truth_vcf=inputs["truth_bcf"],
+        region_text=inputs["region"], input_sample=args.sample or None,
+        truth_sample=args.truth_sample or None, pred_sample=args.sample or None,
+        methods=[("phirefly_phaselet_hyperread", outdir / "phased.component_ps.vcf.gz",
+                  [outdir / "logs/solve.time.txt"])])
+    write_metrics_rows(path, rows)
+    (outdir / "logs/metrics.stdout.txt").write_text(str(path) + "\n")
+    (outdir / "logs/metrics.stderr.txt").write_text("")
+    return rows[0]
 
 
 def run_phaselet_qaia(args) -> None:
-    t0 = time.monotonic()
+    started = time.monotonic()
     region_key = str(args.region_key or args.region_label or "custom")
-    algorithm = args.algorithm
-    cfg_name = str(args.phaselet_config_name)
-    min_abs_support = float(args.min_abs_support)
-    min_count = int(args.min_count)
-    min_confidence = float(args.min_confidence)
-    max_distance_bp = int(args.max_distance_bp)
     inputs = required_inputs(region_key, args)
-    dt = float(algorithm_dt(algorithm))
-    outdir = args.outroot / region_key / f"alg_{algorithm}" / f"phaselet_{cfg_name}"
-    phirefly_dir = outdir / "phirefly"
-    logs_dir = outdir / "logs"
-    paper_dir = outdir / "paper_metrics"
-    for directory in [phirefly_dir, logs_dir, paper_dir, args.outroot / "tables"]:
-        directory.mkdir(parents=True, exist_ok=True)
+    outdir = prepare_output(args, region_key)
 
-    for key in ["observations", "input_vcf_gz", "tau_snp_phases"]:
-        path = Path(inputs[key])
-        if not path.exists():
-            raise SystemExit(f"missing {key}: {path}")
-    for key in ["input_vcf_plain", "truth_bcf"]:
-        path = inputs[key]
-        if path is not None and not Path(path).exists():
-            raise SystemExit(f"missing {key}: {path}")
+    solve_started = time.monotonic()
+    data = load_read_data(args, inputs)
+    metadata = {"t_load_inputs": time.monotonic() - solve_started}
+    stage_started = time.monotonic()
+    _, initial_phaselets, initial_stats, edges, soft_edges = build_initial_phaselets(data, args)
+    metadata.update(t_build_phaselets=time.monotonic() - stage_started,
+                    initial_phaselets=len(initial_phaselets))
+    metadata.update({f"initial_{key}": value for key, value in initial_stats.items()})
 
-    prefix = phirefly_dir / "phaselet_hyperread_qaia"
-    solve_time = logs_dir / "solve.time.txt"
-    component_vcf = outdir / "phased.component_ps.vcf"
-    component_vcf_gz = outdir / "phased.component_ps.vcf.gz"
-    metrics_tsv = paper_dir / "phaselet_hyperread.metrics.tsv"
+    stage_started = time.monotonic()
+    ids, phaselets, margins = relax_phaselets(data.train_matrix, data.tau, data.snp_ids, edges)
+    metadata["t_read_consistency"] = time.monotonic() - stage_started
+    trace = (args.trace_output or outdir / "logs/solver_trace.tsv") if args.trace_every > 0 else None
+    row_weights = (np.where(data.train_mask, 1.0, float(args.validation_weight))
+                   if data.validation_matrix is not None else None)
+    solution = solve_stage(
+        data.train_entries, data.matrix, data.snp_ids, data.tau, ids, phaselets,
+        soft_edges, args, row_weights=row_weights, trace_output=trace, stage="relaxed")
+    metadata.update(solution.timings)
 
-    if args.force or not prefix.with_suffix(".summary.tsv").exists():
-        time_start = time.monotonic()
-        observations_path = str(inputs["observations"])
-        if observations_path.endswith(".npz"):
-            read_ids, snp_ids, read_matrix, read_entries, observation_count = load_npz_graph(
-                observations_path,
-                weighted=args.weighted,
-            )
-        else:
-            obs = load_observations(observations_path, weighted=args.weighted, weight_column="weight")
-            read_ids, snp_ids, read_matrix = build_matrix(obs)
-            read_entries = build_read_entries(obs, read_ids, snp_ids)
-            observation_count = len(obs)
-        train_entries, train_mask, val_mask = split_read_entries(
-            read_ids,
-            read_entries,
-            validation_fraction=float(args.validation_fraction),
-            validation_salt=str(args.validation_salt),
-        )
-        train_read_matrix = read_matrix[train_mask]
-        validation_read_matrix = read_matrix[val_mask] if np.any(val_mask) else None
-        if args.parity_edges is not None and np.any(val_mask):
-            raise SystemExit("--parity-edges cannot be combined with --validation-fraction > 0 unless generated from the same train split")
-        tau = load_phases(Path(inputs["tau_snp_phases"]))
-        missing_tau = [snp_id for snp_id in snp_ids if snp_id not in tau]
-        if missing_tau:
-            raise SystemExit(f"missing tau phases for {len(missing_tau)} observed SNPs")
-        tau_vec = np.fromiter((tau[snp_id] for snp_id in snp_ids), dtype=np.int8, count=len(snp_ids))
-
-        precomputed_parity_edges = load_parity_edges(args.parity_edges) if args.parity_edges is not None else None
-        phaselet_ids, phaselets, phaselet_stats, phaselet_edge_rows, soft_snp_edges = build_phaselets(
-            train_entries,
-            snp_ids=snp_ids,
-            tau_vec=tau_vec,
-            min_abs_support=min_abs_support,
-            min_count=min_count,
-            min_confidence=min_confidence,
-            max_distance_bp=max_distance_bp,
-            bridge_mode=args.bridge_mode,
-            risk_threshold=args.risk_threshold,
-            risk_alpha_conf=args.risk_alpha_conf,
-            risk_beta_count=args.risk_beta_count,
-            risk_gamma_conflict=args.risk_gamma_conflict,
-            risk_delta_distance=args.risk_delta_distance,
-            risk_epsilon_domination=args.risk_epsilon_domination,
-            risk_distance_norm_bp=args.risk_distance_norm_bp,
-            soft_bridge_mode=args.soft_bridge_mode,
-            soft_min_abs_support=args.soft_min_abs_support,
-            soft_min_count=args.soft_min_count,
-            soft_min_confidence=args.soft_min_confidence,
-            soft_risk_threshold=args.soft_risk_threshold,
-            parity_edges=precomputed_parity_edges,
-        )
-        hyper_matrix, hyperread_rows, hyperread_edge_rows, hyper_stats = build_hyperread_matrix(
-            train_entries,
-            tau_vec=tau_vec,
-            phaselet_ids=phaselet_ids,
-            n_phaselets=len(phaselets),
-            hyperread_norm=args.hyperread_norm,
-            hyperread_cap=args.hyperread_cap,
-            adaptive_dom_threshold=args.adaptive_dom_threshold,
-        )
-        soft_phaselet_coupling, soft_phaselet_edge_rows, soft_phaselet_stats = build_soft_phaselet_coupling(
-            soft_snp_edges,
-            phaselet_ids=phaselet_ids,
-            tau_vec=tau_vec,
-            n_phaselets=len(phaselets),
-            soft_edge_scale=args.soft_edge_scale,
-            soft_edge_cap=args.soft_edge_cap,
-        )
-        compressed_nodes = hyper_matrix.shape[0] + hyper_matrix.shape[1]
-        if compressed_nodes > args.max_qaia_nodes:
-            raise SystemExit(
-                f"phaselet-hyperread graph has {compressed_nodes} nodes, above --max-qaia-nodes {args.max_qaia_nodes}; "
-                "use stricter phaselet merging or component-wise execution"
-            )
-
-        qaia_result = solve_qaia(
-            hyper_matrix,
-            phaselet_coupling=soft_phaselet_coupling,
-            algorithm=algorithm,
-            backend=args.backend,
-            batch_size=args.batch_size,
-            n_iter=args.n_iter,
-            dt=dt,
-            seed=args.seed,
-            seed_scale=args.seed_scale,
-            seed_noise=args.seed_noise,
-        )
-        z_samples = qaia_result.phaselet_spins
-        delta_samples = tau_vec[:, None] * z_samples[phaselet_ids, :]
-        full_read_fields = np.asarray(read_matrix @ delta_samples, dtype=np.float64)
-        profiled_scores = np.abs(full_read_fields).sum(axis=0)
-        train_scores = np.abs(np.asarray(train_read_matrix @ delta_samples, dtype=np.float64)).sum(axis=0)
-        if validation_read_matrix is not None:
-            validation_scores = np.abs(np.asarray(validation_read_matrix @ delta_samples, dtype=np.float64)).sum(axis=0)
-            selection_scores = train_scores + float(args.validation_weight) * validation_scores
-            selection_objective = "train_plus_heldout_profiled_F"
-        else:
-            validation_scores = np.zeros_like(profiled_scores)
-            selection_scores = profiled_scores
-            selection_objective = "exact_original_read_profiled_F"
-        best_idx = int(np.argmax(selection_scores))
-        best_delta = delta_samples[:, best_idx].astype(np.int8, copy=False)
-        full_sigma = sign_keep_zero(np.asarray(read_matrix @ best_delta, dtype=np.float64).ravel())
-        total_weight = float(abs(read_matrix).sum())
-        solve_elapsed = time.monotonic() - time_start
-
-        with solve_time.open("w") as out:
-            out.write(f"Elapsed (wall clock) time (h:mm:ss or m:ss): 0:{solve_elapsed:05.2f}\n")
-
-        if args.debug_output:
-            write_debug_tables(outdir, phaselets, phaselet_edge_rows, soft_phaselet_edge_rows, hyperread_rows, hyperread_edge_rows)
-
-        phaselet_sizes = np.asarray([row["n_snps"] for row in phaselets], dtype=np.int64)
-        summary = {
-            "method": "phirefly_phaselet_hyperread_qaia",
-            "algorithm": algorithm,
-            "backend": args.backend,
-            "batch_size": args.batch_size,
-            "n_iter": args.n_iter,
-            "dt": dt,
-            "seed": args.seed,
-            "seed_scale": args.seed_scale,
-            "seed_noise": args.seed_noise,
-            "hyperread_norm": args.hyperread_norm,
-            "hyperread_cap": args.hyperread_cap,
-            "adaptive_dom_threshold": args.adaptive_dom_threshold,
-            "weighted": args.weighted,
-            "debug_output": args.debug_output,
-            "parity_edge_source": str(args.parity_edges) if args.parity_edges is not None else "from_observations",
-            "phaselet_config": cfg_name,
-            "min_abs_support": min_abs_support,
-            "min_count": min_count,
-            "min_confidence": min_confidence,
-            "max_distance_bp": max_distance_bp,
-            "bridge_mode": args.bridge_mode,
-            "risk_threshold": args.risk_threshold,
-            "risk_alpha_conf": args.risk_alpha_conf,
-            "risk_beta_count": args.risk_beta_count,
-            "risk_gamma_conflict": args.risk_gamma_conflict,
-            "risk_delta_distance": args.risk_delta_distance,
-            "risk_epsilon_domination": args.risk_epsilon_domination,
-            "risk_distance_norm_bp": args.risk_distance_norm_bp,
-            "soft_bridge_mode": args.soft_bridge_mode,
-            "soft_min_abs_support": args.soft_min_abs_support,
-            "soft_min_count": args.soft_min_count,
-            "soft_min_confidence": args.soft_min_confidence,
-            "soft_risk_threshold": args.soft_risk_threshold,
-            "soft_edge_scale": args.soft_edge_scale,
-            "soft_edge_cap": args.soft_edge_cap,
-            "validation_fraction": args.validation_fraction,
-            "validation_weight": args.validation_weight,
-            "validation_salt": args.validation_salt,
-            "train_reads": int(train_mask.sum()),
-            "validation_reads": int(val_mask.sum()),
-            "reads": len(read_ids),
-            "snps": len(snp_ids),
-            "observations": observation_count,
-            "original_spins": len(read_ids) + len(snp_ids),
-            "phaselets": len(phaselets),
-            "largest_phaselet_snps": int(phaselet_sizes.max()) if phaselet_sizes.size else 0,
-            "median_phaselet_snps": float(np.median(phaselet_sizes)) if phaselet_sizes.size else 0.0,
-            "hyperreads": hyper_stats["hyperreads"],
-            "single_phaselet_reads": hyper_stats["single_phaselet_reads"],
-            "multi_phaselet_reads": hyper_stats["multi_phaselet_reads"],
-            "compressed_nodes": compressed_nodes,
-            "hyper_matrix_nnz": hyper_matrix.nnz,
-            "coupling_nnz": qaia_result.coupling_nnz,
-            "qaia_runtime_s": f"{qaia_result.runtime_s:.2f}",
-            **phaselet_stats,
-            **soft_phaselet_stats,
-            "single_phaselet_constant": f"{hyper_stats['single_phaselet_constant']:.8f}",
-            "max_phaselet_hyperread_domination": hyper_stats["max_phaselet_hyperread_domination"],
-            "mean_phaselet_hyperread_domination": hyper_stats["mean_phaselet_hyperread_domination"],
-            "compressed_best_score": f"{float(qaia_result.scores[best_idx]):.8f}",
-            "selection_score_best": f"{float(selection_scores[best_idx]):.8f}",
-            "profiled_F_train_best": f"{float(train_scores[best_idx]):.8f}",
-            "profiled_F_validation_best": f"{float(validation_scores[best_idx]):.8f}",
-            "profiled_F_best": f"{float(profiled_scores[best_idx]):.8f}",
-            "profiled_disagreement": f"{(total_weight - float(profiled_scores[best_idx])) / 2.0:.8f}",
-            "total_abs_observation_weight": f"{total_weight:.8f}",
-            "best_candidate_index": best_idx,
-            "candidate_count": z_samples.shape[1],
-            "solver_runtime_s": f"{solve_elapsed:.2f}",
-            "postprocess": "none",
-            "selection_objective": selection_objective,
-        }
-        write_solution(prefix, read_ids, snp_ids, full_sigma, best_delta, summary)
-
-    copy_solution_outputs(prefix, outdir)
-
-    if args.force or not component_vcf_gz.exists():
-        export_component_vcf(args, inputs, PACKAGE_DIR, logs_dir, outdir, component_vcf, component_vcf_gz)
-
-    have_truth = inputs["truth_bcf"] is not None and inputs["input_vcf_plain"] is not None
-    if have_truth and (args.force or not metrics_tsv.exists()):
-        run_benchmark_metrics(args, inputs, PACKAGE_DIR, logs_dir, metrics_tsv, component_vcf_gz, solve_time)
-
-    summary = read_key_value(outdir / "qaia_summary.tsv")
-    component_metrics = read_method_metrics(metrics_tsv, "phirefly_phaselet_hyperread") if have_truth else {}
-    write_config_metrics(
-        outdir=outdir,
-        inputs=inputs,
-        args=args,
-        region_key=region_key,
-        algorithm=algorithm,
-        cfg_name=cfg_name,
-        dt=dt,
-        have_truth=have_truth,
-        summary=summary,
-        component_metrics=component_metrics,
-        component_vcf_gz=component_vcf_gz,
-        metrics_tsv=metrics_tsv,
-        solve_time=solve_time,
-        t0=t0,
-    )
+    released = 0
+    for edge in edges:
+        if edge["status"] in {"hard_retained", "hard_cycle"} and (
+                margins[int(edge["snp_i"])] < 0 or margins[int(edge["snp_j"])] < 0):
+            edge["status"] = "read_consistency_released"
+            released += 1
+    metadata.update(suspect_snps=int(np.count_nonzero(margins < 0)),
+                    read_consistency_released_edges=released, trace_output=str(trace) if trace else "")
+    summary = summarize_solution(args, data, solution, phaselets, metadata)
+    sigma = sign_keep_zero(np.asarray(data.matrix @ solution.delta).ravel())
+    elapsed = time.monotonic() - solve_started
+    summary["solver_runtime_s"] = f"{elapsed:.2f}"
+    (outdir / "logs/solve.time.txt").write_text(
+        f"Elapsed (wall clock) time (h:mm:ss or m:ss): 0:{elapsed:05.2f}\n")
+    if args.debug_output:
+        write_debug_output(outdir, data, solution, ids, phaselets, edges, margins)
+    write_solution(outdir, data.read_ids, data.snp_ids, sigma, solution.delta, summary, solution.ps)
+    export_component_vcf(args, inputs, outdir)
+    metrics = evaluate_run(args, inputs, outdir)
+    write_config_metrics(outdir, inputs, args, summary, metrics, time.monotonic() - started)
 
 
 def main() -> None:

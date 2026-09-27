@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import gzip
-
 import numpy as np
 from scipy import sparse
 
-
-def open_maybe_gzip(path: str):
-    return gzip.open(path, "rt") if path.endswith(".gz") else open(path)
+from .io import open_text
 
 
 def load_observations(path: str, weighted: bool, weight_column: str):
@@ -18,7 +14,7 @@ def load_observations(path: str, weighted: bool, weight_column: str):
     if path.endswith(".npz"):
         return load_npz_observations(path, weighted=weighted)
     obs = []
-    with open_maybe_gzip(path) as handle:
+    with open_text(path) as handle:
         header = handle.readline().rstrip("\n").split("\t")
         idx = {name: i for i, name in enumerate(header)}
         if weighted and weight_column not in idx:
@@ -67,6 +63,12 @@ def load_npz_graph(path: str, weighted: bool):
     snp_ids = [str(value) for value in arr["snp_ids"]]
     rows = np.asarray(arr["read_idx"], dtype=np.int64)
     cols = np.asarray(arr["snp_idx"], dtype=np.int64)
+    # Dictionaries include input sites that may have no retained observation.
+    # Keep only observed coordinates, matching the TSV and MSF loading paths.
+    active_reads, rows = np.unique(rows, return_inverse=True)
+    active_snps, cols = np.unique(cols, return_inverse=True)
+    read_ids = [read_ids[i] for i in active_reads]
+    snp_ids = [snp_ids[i] for i in active_snps]
     alleles = np.asarray(arr["b_ki"], dtype=np.int8)
     weights = np.asarray(arr["weight"], dtype=np.float64) if weighted and "weight" in arr.files else np.ones(len(rows))
     data = weights * alleles
@@ -85,5 +87,4 @@ __all__ = [
     "load_npz_graph",
     "load_npz_observations",
     "load_observations",
-    "open_maybe_gzip",
 ]

@@ -77,7 +77,8 @@ def build_msf_backbone(edge_scores: ParityEdges, n_snps: int) -> np.ndarray | No
             rank[ra] += 1
 
     for (i, j), score in sorted(edge_scores.items(), key=lambda item: abs(item[1]), reverse=True):
-        union(i, j, 0 if score >= 0 else 1)
+        if score != 0:
+            union(i, j, 0 if score > 0 else 1)
 
     delta = np.ones(n_snps, dtype=np.int8)
     for i in range(n_snps):

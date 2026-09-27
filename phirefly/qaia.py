@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import inspect
+import csv
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from scipy import sparse
@@ -19,6 +21,7 @@ class QAIAResult:
     scores: np.ndarray
     coupling_nnz: int
     runtime_s: float
+    trace_path: str | None = None
 
 
 def algorithm_dt(algorithm: str) -> str:
@@ -43,6 +46,7 @@ def build_ising_coupling(matrix: sparse.csr_matrix, phaselet_coupling: sparse.cs
         data = np.concatenate([data, phaselet_coupling.data.astype(np.float64, copy=False)])
     coupling = sparse.coo_matrix((data, (rows, cols)), shape=(n_nodes, n_nodes)).tocsr()
     coupling.sum_duplicates()
+    coupling.eliminate_zeros()
     return coupling
 
 
@@ -92,6 +96,142 @@ def score_compressed_samples(
     return scores
 
 
+def solver_spins(solver, n_hyper: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return signed hyperread and phaselet spins from a MindQuantum solver."""
+
+    x = solver.x
+    if hasattr(x, "detach"):
+        x = x.detach().cpu().numpy()
+    spins = np.sign(np.asarray(x))
+    spins[spins == 0] = 1
+    if spins.ndim == 1:
+        spins = spins.reshape(-1, 1)
+    eta = spins[:n_hyper, :].astype(np.int8, copy=False)
+    z = spins[n_hyper:, :].astype(np.int8, copy=False)
+    return eta, z
+
+
+def set_solver_iteration_window(solver, algorithm: str, start: int, stop: int, schedules: dict[str, np.ndarray]) -> None:
+    """Limit a MindQuantum solver update to one contiguous schedule window."""
+
+    solver.n_iter = int(stop - start)
+    if algorithm in {"BSB", "ASB", "DSB"} and "p" in schedules:
+        solver.p = schedules["p"][start:stop]
+    elif algorithm == "CFC" and "p" in schedules:
+        solver.p = schedules["p"][start:stop]
+    elif algorithm == "SimCIM" and "p_list" in schedules:
+        solver.p_list = schedules["p_list"][start:stop]
+
+
+def write_trace_row(
+    writer: csv.DictWriter,
+    matrix: sparse.csr_matrix,
+    phaselet_coupling: sparse.csr_matrix | None,
+    eta: np.ndarray,
+    z: np.ndarray,
+    metadata: dict[str, object],
+    iteration: int,
+    elapsed_s: float,
+    best_objective_seen: float,
+) -> float:
+    """Write one QAIA trace checkpoint and return updated best objective."""
+
+    scores = score_compressed_samples(matrix, phaselet_coupling, z, eta)
+    best_objective = float(np.max(scores)) if scores.size else 0.0
+    best_objective_seen = max(best_objective_seen, best_objective)
+    writer.writerow(
+        {
+            **metadata,
+            "iteration": int(iteration),
+            "elapsed_time_s": f"{elapsed_s:.6f}",
+            "energy": f"{-best_objective:.8f}",
+            "objective": f"{best_objective:.8f}",
+            "best_energy": f"{-best_objective_seen:.8f}",
+            "best_objective": f"{best_objective_seen:.8f}",
+            "objective_mean": f"{float(np.mean(scores)):.8f}" if scores.size else "0.00000000",
+            "objective_sd": f"{float(np.std(scores)):.8f}" if scores.size else "0.00000000",
+        }
+    )
+    return best_objective_seen
+
+
+def update_solver_with_trace(
+    solver,
+    matrix: sparse.csr_matrix,
+    phaselet_coupling: sparse.csr_matrix | None,
+    algorithm: str,
+    n_iter: int,
+    trace_every: int,
+    trace_output: Path,
+    trace_metadata: dict[str, object],
+    started: float,
+) -> None:
+    """Run a QAIA solver while writing true checkpoint traces."""
+
+    if algorithm == "LQA":
+        raise SystemExit("LQA trace is not supported by MindQuantum chunked update because Adam moments are local to update()")
+    trace_output.parent.mkdir(parents=True, exist_ok=True)
+    schedules: dict[str, np.ndarray] = {}
+    if hasattr(solver, "p"):
+        schedules["p"] = np.asarray(solver.p).copy()
+    if hasattr(solver, "p_list"):
+        schedules["p_list"] = np.asarray(solver.p_list).copy()
+
+    n_hyper = matrix.shape[0]
+    fields = [
+        "region",
+        "solver",
+        "seed",
+        "batch_size",
+        "nodes",
+        "couplings",
+        "iteration",
+        "elapsed_time_s",
+        "energy",
+        "objective",
+        "best_energy",
+        "best_objective",
+        "objective_mean",
+        "objective_sd",
+    ]
+    checkpoints = list(range(0, int(n_iter), int(trace_every)))
+    if not checkpoints or checkpoints[-1] != int(n_iter):
+        checkpoints.append(int(n_iter))
+    best_seen = -np.inf
+    previous = 0
+    with trace_output.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, delimiter="\t", fieldnames=fields)
+        writer.writeheader()
+        eta, z = solver_spins(solver, n_hyper)
+        best_seen = write_trace_row(
+            writer,
+            matrix,
+            phaselet_coupling,
+            eta,
+            z,
+            trace_metadata,
+            iteration=0,
+            elapsed_s=0.0,
+            best_objective_seen=best_seen,
+        )
+        for checkpoint in checkpoints[1:]:
+            set_solver_iteration_window(solver, algorithm, previous, checkpoint, schedules)
+            solver.update()
+            previous = checkpoint
+            eta, z = solver_spins(solver, n_hyper)
+            best_seen = write_trace_row(
+                writer,
+                matrix,
+                phaselet_coupling,
+                eta,
+                z,
+                trace_metadata,
+                iteration=checkpoint,
+                elapsed_s=time.monotonic() - started,
+                best_objective_seen=best_seen,
+            )
+
+
 def solve_qaia(
     matrix: sparse.csr_matrix,
     phaselet_coupling: sparse.csr_matrix | None,
@@ -103,11 +243,18 @@ def solve_qaia(
     seed: int,
     seed_scale: float,
     seed_noise: float,
+    trace_every: int = 0,
+    trace_output: Path | None = None,
+    trace_metadata: dict[str, object] | None = None,
 ) -> QAIAResult:
     try:
         import mindquantum.algorithm.qaia as qaia
-    except Exception as exc:
-        raise SystemExit("MindQuantum QAIA is unavailable in this environment") from exc
+    except ImportError as exc:
+        raise SystemExit(
+            "MindQuantum QAIA could not be imported. From the source directory run "
+            "python -m pip install '.[qaia]' (or '.[gpu]' for GPU support). "
+            f"Original error: {exc}"
+        ) from exc
     solver_cls = getattr(qaia, algorithm, None)
     if solver_cls is None:
         raise SystemExit(f"MindQuantum QAIA algorithm {algorithm!r} is unavailable")
@@ -123,32 +270,47 @@ def solve_qaia(
             scores=np.zeros(int(batch_size), dtype=np.float64),
             coupling_nnz=0,
             runtime_s=0.0,
+            trace_path=str(trace_output) if trace_output is not None else None,
         )
     x0 = msf_seed_state(matrix, batch_size, seed, seed_scale, seed_noise)
     kwargs = qaia_kwargs(solver_cls, coupling, x0, n_iter, batch_size, dt, backend)
     started = time.monotonic()
-    try:
-        solver = solver_cls(**kwargs)
-    except TypeError:
-        kwargs.pop("backend", None)
-        solver = solver_cls(**kwargs)
-    solver.update()
+    solver = solver_cls(**kwargs)
+    if getattr(solver, "backend", backend) != backend:
+        raise RuntimeError(f"Requested {backend}, but solver selected {solver.backend}")
+    if trace_every and trace_output is not None:
+        metadata = {
+            "region": "",
+            "solver": algorithm,
+            "seed": seed,
+            "batch_size": batch_size,
+            "nodes": coupling.shape[0],
+            "couplings": coupling.nnz // 2,
+        }
+        if trace_metadata:
+            metadata.update(trace_metadata)
+        update_solver_with_trace(
+            solver,
+            matrix,
+            phaselet_coupling,
+            algorithm=algorithm,
+            n_iter=n_iter,
+            trace_every=trace_every,
+            trace_output=trace_output,
+            trace_metadata=metadata,
+            started=started,
+        )
+    else:
+        solver.update()
+    eta, z = solver_spins(solver, n_hyper)
     runtime_s = time.monotonic() - started
-    x = solver.x
-    if hasattr(x, "detach"):
-        x = x.detach().cpu().numpy()
-    spins = np.sign(np.asarray(x))
-    spins[spins == 0] = 1
-    if spins.ndim == 1:
-        spins = spins.reshape(-1, 1)
-    eta = spins[:n_hyper, :].astype(np.int8, copy=False)
-    z = spins[n_hyper:, :].astype(np.int8, copy=False)
     return QAIAResult(
         phaselet_spins=z,
         hyperread_spins=eta,
         scores=score_compressed_samples(matrix, phaselet_coupling, z, eta),
         coupling_nnz=int(coupling.nnz),
         runtime_s=float(runtime_s),
+        trace_path=str(trace_output) if trace_output is not None else None,
     )
 
 
@@ -160,4 +322,5 @@ __all__ = [
     "qaia_kwargs",
     "score_compressed_samples",
     "solve_qaia",
+    "solver_spins",
 ]

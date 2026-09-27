@@ -3,6 +3,7 @@ import math
 
 import numpy as np
 import pysam
+import pytest
 
 from phirefly.hyperread import build_hyperread_matrix
 from phirefly.core.matrix import load_npz_graph
@@ -14,6 +15,32 @@ from phirefly.vcf import export_phased_vcf
 
 
 DATA = Path(__file__).resolve().parents[1] / "examples" / "mhc_smoke" / "data"
+
+
+@pytest.mark.parametrize("suffix", [".tsv", ".tsv.gz"])
+@pytest.mark.parametrize("as_string", [False, True])
+def test_shared_text_io_preserves_read_and_write_modes(tmp_path, suffix, as_string):
+    from phirefly.core.io import open_text, read_key_value
+
+    path = tmp_path / ("values" + suffix)
+    arg = str(path) if as_string else path
+    with open_text(arg, "wt") as out:
+        out.write("metric\tvalue\nfirst\t1\n")
+    with open_text(arg, "at") as out:
+        out.write("second\t2\n")
+    with open_text(arg) as handle:
+        assert handle.read() == "metric\tvalue\nfirst\t1\nsecond\t2\n"
+    assert read_key_value(path) == {"first": "1", "second": "2"}
+
+
+def test_region_parser_keeps_coordinate_conventions():
+    from phirefly.core.genomics import parse_region
+    from phirefly.vcf import parse_region as vcf_region
+
+    assert parse_region("chr1:1-1,000") == ("chr1", 1, 1000)
+    assert parse_region("chr1:1-1,000", zero_based_start=True) == ("chr1", 0, 1000)
+    assert vcf_region("chr1:1-1,000") == ("chr1", 0, 1000)
+    assert parse_region(None) is None
 
 
 def test_npz_graph_loads_packaged_mhc_smoke():
@@ -195,7 +222,8 @@ def test_metrics_uses_requested_pred_sample(tmp_path):
         methods=[("pred", pred_vcf, [])],
     )
     assert rows[0]["HE_percent"] == 0.0
-    assert rows[0]["phased_block_N50_kb"] == rows[0]["haplotype_N50_kb"]
+    assert rows[0]["span_N50_kb"] == rows[0]["haplotype_N50_kb"] == 0.011
+    assert rows[0]["phased_block_N50_kb"] == 0.010
 
 
 def test_hic_component_orientation_is_msf_only():

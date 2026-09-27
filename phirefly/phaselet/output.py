@@ -1,308 +1,185 @@
-"""Output, VCF export, and summary helpers for phaselet QAIA runs."""
+"""Solution, diagnostic tables and run summaries for phaselet phasing."""
 
 from __future__ import annotations
 
-import argparse
 import csv
-import re
 import shutil
-import subprocess
 import sys
-import time
 from pathlib import Path
 
-from ..metrics import compute_metrics_rows, write_metrics_rows
-from ..vcf import export_phased_vcf
+import numpy as np
+
+from ..core.genomics import snp_sort_key
+from ..qaia import algorithm_dt
 
 
-def snp_sort_key(snp_id: str) -> tuple[str, int, str]:
-    chrom, pos_s, rest = snp_id.split(":", 2)
-    return chrom, int(pos_s), rest
+RUN_SETTINGS = (
+    "algorithm", "backend", "batch_size", "n_iter", "seed", "seed_scale",
+    "seed_noise", "hyperread_norm", "hyperread_cap", "adaptive_dom_threshold",
+    "weighted", "debug_output", "min_abs_support", "min_count", "min_confidence",
+    "max_distance_bp", "bridge_mode", "risk_threshold", "risk_alpha_conf",
+    "risk_beta_count", "risk_gamma_conflict", "risk_delta_distance",
+    "risk_epsilon_domination", "risk_distance_norm_bp", "soft_bridge_mode",
+    "soft_min_abs_support", "soft_min_count", "soft_min_confidence",
+    "soft_risk_threshold", "soft_edge_scale", "soft_edge_cap",
+    "validation_fraction", "validation_weight", "validation_salt", "trace_every",
+)
+CONFIG_FIELDS = (
+    "min_abs_support", "min_count", "min_confidence", "max_distance_bp",
+    "hyperread_norm", "hyperread_cap", "adaptive_dom_threshold", "debug_output",
+    "parity_edge_source", "bridge_mode", "risk_threshold", "soft_bridge_mode",
+    "soft_min_abs_support", "soft_min_count", "soft_min_confidence",
+    "soft_risk_threshold", "soft_edge_scale", "soft_edge_cap",
+    "validation_fraction", "validation_weight", "trace_every", "trace_output",
+    "train_reads", "validation_reads",
+)
+GRAPH_FIELDS = (
+    "reads", "snps", "observations", "original_spins", "phaselets",
+    "largest_phaselet_snps", "median_phaselet_snps", "hyperreads",
+    "single_phaselet_reads", "multi_phaselet_reads", "compressed_nodes",
+    "hyper_matrix_nnz", "coupling_nnz", "parity_edges", "retained_phaselet_edges",
+    "soft_bridge_edges", "weak_phaselet_edges", "conflicting_phaselet_edges",
+    "mean_retained_bridge_risk", "max_retained_bridge_risk",
+    "mean_soft_bridge_risk", "max_soft_bridge_risk",
+    "soft_phaselet_coupling_edges", "soft_phaselet_coupling_nnz",
+    "soft_phaselet_coupling_abs_sum", "max_phaselet_hyperread_domination",
+    "mean_phaselet_hyperread_domination", "selection_score_best",
+    "profiled_F_train_best", "profiled_F_validation_best", "profiled_F_best",
+    "profiled_disagreement",
+)
+BENCHMARK_FIELDS = (
+    "SE_percent", "HE_percent", "haplotype_N50_kb", "phased_block_N50_kb",
+    "phasing_completeness_percent", "SNP_completeness_percent", "switches",
+    "hamming", "hamming_denominator",
+)
+DEBUG_TABLES = {
+    "phaselets": ("phaselet_id", "chrom", "start", "end", "n_snps"),
+    "phaselet_edges": ("snp_i", "snp_j", "status"),
+    "soft_phaselet_edges": ("left_phaselet", "right_phaselet", "soft_coupling"),
+    "hyperreads": ("hyperread_id", "path", "signs", "support_reads"),
+    "hyperread_edges": ("hyperread_id", "phaselet_id", "normalized_value"),
+}
 
 
-def load_phases(path: Path) -> dict[str, int]:
-    out: dict[str, int] = {}
-    with path.open() as fh:
-        reader = csv.DictReader(fh, delimiter="\t")
-        for row in reader:
-            out[row["snp_id"]] = int(row["delta"])
-    return out
+def summarize_solution(args, data, solution, phaselets, metadata) -> dict:
+    """Score the selected solution and collect statistics without writing files."""
+    raw_score = float(np.abs(data.matrix @ solution.delta).sum())
+    train_score = float(np.abs(data.train_matrix @ solution.delta).sum())
+    validation_score = (float(np.abs(data.validation_matrix @ solution.delta).sum())
+                        if data.validation_matrix is not None else 0.0)
+    total_weight = float(abs(data.matrix).sum())
+    compressed_score = float(np.abs(solution.hyper @ solution.z).sum()
+                             + .5 * solution.z @ (solution.soft @ solution.z))
+    sizes = np.asarray([p["n_snps"] for p in phaselets], dtype=np.int64)
+    hyper = solution.hyper_stats
+    return {
+        **metadata,
+        **{key: getattr(args, key) for key in RUN_SETTINGS},
+        "dt": float(algorithm_dt(args.algorithm)),
+        "phaselet_config": str(args.phaselet_config_name),
+        "parity_edge_source": str(args.parity_edges) if args.parity_edges is not None else "from_observations",
+        "method": "phirefly_phaselet_hyperread_qaia",
+        "pipeline_revision": "single_cfc_v1",
+        "ps_policy": "retained_nonzero_couplings",
+        "retained_graph_components": len(np.unique(solution.ps)),
+        "qaia_calls": 1,
+        "qaia_relaxed_runtime_s": solution.qaia.runtime_s,
+        "qaia_runtime_s": f"{solution.qaia.runtime_s:.6f}",
+        "train_reads": int(data.train_mask.sum()),
+        "validation_reads": int(data.validation_mask.sum()),
+        "reads": len(data.read_ids), "snps": len(data.snp_ids),
+        "observations": data.observation_count,
+        "original_spins": len(data.read_ids) + len(data.snp_ids),
+        "phaselets": len(phaselets),
+        "largest_phaselet_snps": int(sizes.max()) if sizes.size else 0,
+        "median_phaselet_snps": float(np.median(sizes)) if sizes.size else 0.0,
+        **{key: hyper[key] for key in ("hyperreads", "single_phaselet_reads", "multi_phaselet_reads",
+                                      "max_phaselet_hyperread_domination", "mean_phaselet_hyperread_domination")},
+        "compressed_nodes": sum(solution.hyper.shape),
+        "hyper_matrix_nnz": solution.hyper.nnz,
+        "coupling_nnz": solution.qaia.coupling_nnz,
+        "retained_phaselet_edges": len(data.snp_ids) - len(phaselets),
+        **solution.soft_stats,
+        "single_phaselet_constant": f"{hyper['single_phaselet_constant']:.8f}",
+        "compressed_best_score": f"{compressed_score:.8f}",
+        "selection_score_best": f"{train_score + float(args.validation_weight) * validation_score:.8f}",
+        "profiled_F_train_best": f"{train_score:.8f}",
+        "profiled_F_validation_best": f"{validation_score:.8f}",
+        "profiled_F_best": f"{raw_score:.8f}",
+        "profiled_disagreement": f"{(total_weight - raw_score) / 2.0:.8f}",
+        "total_abs_observation_weight": f"{total_weight:.8f}",
+        "best_candidate_index": "per_component",
+        "candidate_count": solution.qaia.phaselet_spins.shape[1],
+        "solver_trace_tsv": solution.qaia.trace_path or "",
+        "postprocess": "none", "selection_objective": solution.selection_mode,
+    }
 
 
-def run_command(cmd: list[str], stdout_path: Path | None = None, stderr_path: Path | None = None) -> None:
-    stdout = stdout_path.open("w") if stdout_path else None
-    stderr = stderr_path.open("w") if stderr_path else None
-    try:
-        subprocess.run(cmd, check=True, stdout=stdout, stderr=stderr)
-    finally:
-        if stdout:
-            stdout.close()
-        if stderr:
-            stderr.close()
-
-
-def bgzip_and_index(bgzip: str, tabix: str, plain_vcf: Path, gz_vcf: Path) -> None:
-    with gz_vcf.open("wb") as gz_out:
-        subprocess.run([bgzip, "-f", "-c", str(plain_vcf)], check=True, stdout=gz_out)
-    run_command([tabix, "-f", "-p", "vcf", str(gz_vcf)])
-
-
-def parse_time_seconds(path: Path) -> float:
-    if not path.exists():
-        return 0.0
-    pattern = re.compile(r"Elapsed \(wall clock\) time .*: (?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$")
-    for line in path.read_text(errors="replace").splitlines():
-        match = pattern.search(line.strip())
-        if match:
-            return int(match.group(1) or 0) * 3600 + int(match.group(2)) * 60 + float(match.group(3))
-    return 0.0
-
-
-def read_key_value(path: Path) -> dict[str, str]:
-    if not path.exists():
-        return {}
-    out: dict[str, str] = {}
-    with path.open() as fh:
-        reader = csv.reader(fh, delimiter="\t")
-        next(reader, None)
-        for row in reader:
-            if len(row) >= 2:
-                out[row[0]] = row[1]
-    return out
-
-
-def read_method_metrics(path: Path, method: str) -> dict[str, str]:
-    if not path.exists():
-        return {}
-    with path.open() as fh:
-        reader = csv.DictReader(fh, delimiter="\t")
-        for row in reader:
-            if row.get("method") == method:
-                return row
-    return {}
-
-
-def write_solution(prefix: Path, read_ids: list[str], snp_ids: list[str], sigma, delta, summary) -> None:
+def write_solution(outdir: Path, read_ids, snp_ids, sigma, delta, summary, phase_sets) -> None:
+    prefix = outdir / "phirefly" / "phaselet_hyperread_qaia"
     with prefix.with_suffix(".read_haplotags.tsv").open("w") as out:
         out.write("read_id\tsigma\n")
         for read_id, value in zip(read_ids, sigma):
             out.write(f"{read_id}\t{int(value)}\n")
     with prefix.with_suffix(".snp_phases.tsv").open("w") as out:
-        out.write("snp_id\tdelta\n")
-        for snp_id, value in sorted(zip(snp_ids, delta), key=lambda item: snp_sort_key(item[0])):
-            out.write(f"{snp_id}\t{int(value)}\n")
+        out.write("snp_id\tdelta\tps\n")
+        for i in sorted(range(len(snp_ids)), key=lambda i: snp_sort_key(snp_ids[i])):
+            out.write(f"{snp_ids[i]}\t{int(delta[i])}\t{int(phase_sets[i])}\n")
     with prefix.with_suffix(".summary.tsv").open("w") as out:
         out.write("metric\tvalue\n")
         for key, value in summary.items():
             out.write(f"{key}\t{value}\n")
+    # Preserve published output paths used by downstream Hi-C and collectors.
+    for suffix, name in ((".summary.tsv", "qaia_summary.tsv"),
+                         (".snp_phases.tsv", "snp_phases.tsv"),
+                         (".read_haplotags.tsv", "read_haplotags.tsv")):
+        shutil.copyfile(prefix.with_suffix(suffix), outdir / name)
 
 
-def copy_solution_outputs(prefix: Path, outdir: Path) -> None:
-    shutil.copyfile(prefix.with_suffix(".summary.tsv"), outdir / "qaia_summary.tsv")
-    shutil.copyfile(prefix.with_suffix(".snp_phases.tsv"), outdir / "snp_phases.tsv")
-    shutil.copyfile(prefix.with_suffix(".read_haplotags.tsv"), outdir / "read_haplotags.tsv")
-
-
-def export_component_vcf(
-    args,
-    inputs: dict[str, Path | str],
-    package_dir: Path,
-    logs_dir: Path,
-    outdir: Path,
-    component_vcf: Path,
-    component_vcf_gz: Path,
-) -> None:
-    written, skipped, output_vcf = export_phased_vcf(
-        input_vcf=Path(inputs["input_vcf_gz"]),
-        pred_snp_phases=outdir / "snp_phases.tsv",
-        region=str(inputs["region"]),
-        output_vcf=component_vcf,
-        sample=str(args.sample) if args.sample else None,
-        ps_start=1,
-        observations=Path(inputs["observations"]),
-    )
-    with (logs_dir / "vcf.stdout.txt").open("w") as out:
-        out.write(f"written\t{written}\n")
-        out.write(f"skipped\t{skipped}\n")
-        out.write(f"output_vcf\t{output_vcf}\n")
-    (logs_dir / "vcf.stderr.txt").write_text("")
-    bgzip_and_index(args.bgzip, args.tabix, component_vcf, component_vcf_gz)
-
-
-def run_benchmark_metrics(
-    args,
-    inputs: dict[str, Path | str],
-    package_dir: Path,
-    logs_dir: Path,
-    metrics_tsv: Path,
-    component_vcf_gz: Path,
-    solve_time: Path,
-) -> None:
-    rows = compute_metrics_rows(
-        input_vcf=Path(inputs["input_vcf_plain"]),
-        truth_vcf=Path(inputs["truth_bcf"]),
-        region_text=str(inputs["region"]),
-        input_sample=str(args.sample) if args.sample else None,
-        truth_sample=str(args.truth_sample) if args.truth_sample else None,
-        pred_sample=str(args.sample) if args.sample else None,
-        methods=[("phirefly_phaselet_hyperread", component_vcf_gz, [solve_time])],
-    )
-    write_metrics_rows(metrics_tsv, rows)
-    with (logs_dir / "metrics.stdout.txt").open("w") as out:
-        out.write(str(metrics_tsv) + "\n")
-    (logs_dir / "metrics.stderr.txt").write_text("")
-
-def write_rows(path: Path, rows: list[dict[str, object]], fallback_fields: list[str]) -> None:
-    fieldnames = list(rows[0]) if rows else fallback_fields
+def write_rows(path: Path, rows: list[dict], fallback_fields=()) -> None:
     with path.open("w", newline="") as out:
-        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer = csv.DictWriter(out, fieldnames=list(rows[0]) if rows else fallback_fields, delimiter="\t")
         writer.writeheader()
         writer.writerows(rows)
 
 
-def write_debug_tables(
-    outdir: Path,
-    phaselets: list[dict[str, object]],
-    phaselet_edge_rows: list[dict[str, object]],
-    soft_phaselet_edge_rows: list[dict[str, object]],
-    hyperread_rows: list[dict[str, object]],
-    hyperread_edge_rows: list[dict[str, object]],
-) -> None:
-    write_rows(outdir / "phaselets.tsv", phaselets, ["phaselet_id", "chrom", "start", "end", "n_snps"])
-    write_rows(outdir / "phaselet_edges.tsv", phaselet_edge_rows, ["snp_i", "snp_j", "status"])
-    write_rows(outdir / "soft_phaselet_edges.tsv", soft_phaselet_edge_rows, ["left_phaselet", "right_phaselet", "soft_coupling"])
-    write_rows(outdir / "hyperreads.tsv", hyperread_rows, ["hyperread_id", "path", "signs", "support_reads"])
-    write_rows(outdir / "hyperread_edges.tsv", hyperread_edge_rows, ["hyperread_id", "phaselet_id", "normalized_value"])
+def write_debug_output(outdir, data, solution, ids, phaselets, edges, margins) -> None:
+    from scipy import sparse
+
+    sparse.save_npz(outdir / "hyperread_matrix.npz", solution.hyper)
+    sparse.save_npz(outdir / "soft_phaselet_coupling.npz", solution.soft)
+    np.savez_compressed(outdir / "phaselet_mapping.npz", phaselet_ids=ids,
+                        tau=data.tau, snp_ids=np.asarray(data.snp_ids), ps=solution.ps)
+    np.savez_compressed(outdir / "read_consistency.npz", snp_ids=np.asarray(data.snp_ids), margin=margins)
+    rows = (phaselets, edges, solution.soft_rows, solution.hyper_rows, solution.hyper_edges)
+    for (name, fields), values in zip(DEBUG_TABLES.items(), rows):
+        write_rows(outdir / f"{name}.tsv", values, fields)
 
 
-def write_config_metrics(
-    outdir: Path,
-    inputs: dict[str, Path | str],
-    args: argparse.Namespace,
-    region_key: str,
-    algorithm: str,
-    cfg_name: str,
-    dt: float,
-    have_truth: bool,
-    summary: dict[str, str],
-    component_metrics: dict[str, str],
-    component_vcf_gz: Path,
-    metrics_tsv: Path,
-    solve_time: Path,
-    t0: float,
-) -> None:
-    config_metrics = {
+def write_config_metrics(outdir, inputs, args, summary, component_metrics, elapsed) -> None:
+    have_truth = inputs["truth_bcf"] is not None
+    config = {
         "region": inputs["label"],
-        "region_key": region_key,
+        "region_key": str(args.region_key or args.region_label or "custom"),
         "region_interval": inputs["region"],
-        "sample": args.sample or "",
-        "truth_sample": args.truth_sample or "",
+        "sample": args.sample or "", "truth_sample": args.truth_sample or "",
         "benchmark_metrics": int(have_truth),
-        "algorithm": algorithm,
-        "backend": args.backend,
-        "batch_size": args.batch_size,
-        "n_iter": args.n_iter,
-        "dt": dt,
-        "phaselet_config": cfg_name,
-        "min_abs_support": summary.get("min_abs_support", ""),
-        "min_count": summary.get("min_count", ""),
-        "min_confidence": summary.get("min_confidence", ""),
-        "max_distance_bp": summary.get("max_distance_bp", ""),
-        "hyperread_norm": summary.get("hyperread_norm", ""),
-        "hyperread_cap": summary.get("hyperread_cap", ""),
-        "adaptive_dom_threshold": summary.get("adaptive_dom_threshold", ""),
-        "debug_output": summary.get("debug_output", ""),
-        "parity_edge_source": summary.get("parity_edge_source", ""),
-        "bridge_mode": summary.get("bridge_mode", ""),
-        "risk_threshold": summary.get("risk_threshold", ""),
-        "soft_bridge_mode": summary.get("soft_bridge_mode", ""),
-        "soft_min_abs_support": summary.get("soft_min_abs_support", ""),
-        "soft_min_count": summary.get("soft_min_count", ""),
-        "soft_min_confidence": summary.get("soft_min_confidence", ""),
-        "soft_risk_threshold": summary.get("soft_risk_threshold", ""),
-        "soft_edge_scale": summary.get("soft_edge_scale", ""),
-        "soft_edge_cap": summary.get("soft_edge_cap", ""),
-        "validation_fraction": summary.get("validation_fraction", ""),
-        "validation_weight": summary.get("validation_weight", ""),
-        "train_reads": summary.get("train_reads", ""),
-        "validation_reads": summary.get("validation_reads", ""),
-        "postprocess": "none",
-        "solver_runtime_s": f"{parse_time_seconds(solve_time):.2f}",
-        "config_wall_s": f"{time.monotonic() - t0:.2f}",
-        "reads": summary.get("reads", ""),
-        "snps": summary.get("snps", ""),
-        "observations": summary.get("observations", ""),
-        "original_spins": summary.get("original_spins", ""),
-        "phaselets": summary.get("phaselets", ""),
-        "largest_phaselet_snps": summary.get("largest_phaselet_snps", ""),
-        "median_phaselet_snps": summary.get("median_phaselet_snps", ""),
-        "hyperreads": summary.get("hyperreads", ""),
-        "single_phaselet_reads": summary.get("single_phaselet_reads", ""),
-        "multi_phaselet_reads": summary.get("multi_phaselet_reads", ""),
-        "compressed_nodes": summary.get("compressed_nodes", ""),
-        "hyper_matrix_nnz": summary.get("hyper_matrix_nnz", ""),
-        "coupling_nnz": summary.get("coupling_nnz", ""),
-        "parity_edges": summary.get("parity_edges", ""),
-        "retained_phaselet_edges": summary.get("retained_phaselet_edges", ""),
-        "soft_bridge_edges": summary.get("soft_bridge_edges", ""),
-        "weak_phaselet_edges": summary.get("weak_phaselet_edges", ""),
-        "conflicting_phaselet_edges": summary.get("conflicting_phaselet_edges", ""),
-        "mean_retained_bridge_risk": summary.get("mean_retained_bridge_risk", ""),
-        "max_retained_bridge_risk": summary.get("max_retained_bridge_risk", ""),
-        "mean_soft_bridge_risk": summary.get("mean_soft_bridge_risk", ""),
-        "max_soft_bridge_risk": summary.get("max_soft_bridge_risk", ""),
-        "soft_phaselet_coupling_edges": summary.get("soft_phaselet_coupling_edges", ""),
-        "soft_phaselet_coupling_nnz": summary.get("soft_phaselet_coupling_nnz", ""),
-        "soft_phaselet_coupling_abs_sum": summary.get("soft_phaselet_coupling_abs_sum", ""),
-        "max_phaselet_hyperread_domination": summary.get("max_phaselet_hyperread_domination", ""),
-        "mean_phaselet_hyperread_domination": summary.get("mean_phaselet_hyperread_domination", ""),
-        "selection_score_best": summary.get("selection_score_best", ""),
-        "profiled_F_train_best": summary.get("profiled_F_train_best", ""),
-        "profiled_F_validation_best": summary.get("profiled_F_validation_best", ""),
-        "profiled_F_best": summary.get("profiled_F_best", ""),
-        "profiled_disagreement": summary.get("profiled_disagreement", ""),
-        "SE_percent": component_metrics.get("SE_percent", ""),
-        "HE_percent": component_metrics.get("HE_percent", ""),
-        "haplotype_N50_kb": component_metrics.get("haplotype_N50_kb", ""),
-        "phased_block_N50_kb": component_metrics.get("phased_block_N50_kb", ""),
-        "phasing_completeness_percent": component_metrics.get("phasing_completeness_percent", ""),
-        "SNP_completeness_percent": component_metrics.get("SNP_completeness_percent", ""),
-        "switches": component_metrics.get("switches", ""),
-        "hamming": component_metrics.get("hamming", ""),
-        "hamming_denominator": component_metrics.get("hamming_denominator", ""),
+        **{key: summary[key] for key in ("algorithm", "backend", "batch_size", "n_iter", "dt", "phaselet_config")},
+        **{key: summary.get(key, "") for key in CONFIG_FIELDS},
+        "postprocess": "none", "solver_runtime_s": summary["solver_runtime_s"],
+        "config_wall_s": f"{elapsed:.2f}",
+        **{key: summary.get(key, "") for key in GRAPH_FIELDS},
+        **{key: component_metrics.get(key, "") for key in BENCHMARK_FIELDS},
         "output_dir": outdir,
-        "phased_vcf": component_vcf_gz,
+        "phased_vcf": outdir / "phased.component_ps.vcf.gz",
         "snp_phases": outdir / "snp_phases.tsv",
         "read_haplotags": outdir / "read_haplotags.tsv",
-        "phaselets_tsv": outdir / "phaselets.tsv" if args.debug_output else "",
-        "phaselet_edges_tsv": outdir / "phaselet_edges.tsv" if args.debug_output else "",
-        "soft_phaselet_edges_tsv": outdir / "soft_phaselet_edges.tsv" if args.debug_output else "",
-        "hyperreads_tsv": outdir / "hyperreads.tsv" if args.debug_output else "",
-        "hyperread_edges_tsv": outdir / "hyperread_edges.tsv" if args.debug_output else "",
-        "metrics_tsv": metrics_tsv if have_truth else "",
-        "solve_time_log": solve_time,
+        "solver_trace_tsv": summary.get("solver_trace_tsv", ""),
+        **{f"{name}_tsv": outdir / f"{name}.tsv" if args.debug_output else "" for name in DEBUG_TABLES},
+        "metrics_tsv": outdir / "paper_metrics/phaselet_hyperread.metrics.tsv" if have_truth else "",
+        "solve_time_log": outdir / "logs/solve.time.txt",
     }
-    with (outdir / "config_metrics.tsv").open("w", newline="") as out:
-        writer = csv.DictWriter(out, fieldnames=list(config_metrics), delimiter="\t")
-        writer.writeheader()
-        writer.writerow(config_metrics)
-    print(outdir / "config_metrics.tsv")
-    with (outdir / "config_metrics.tsv").open() as handle:
-        sys.stdout.write(handle.read())
-
-
-__all__ = [
-    "bgzip_and_index",
-    "copy_solution_outputs",
-    "export_component_vcf",
-    "load_phases",
-    "parse_time_seconds",
-    "read_key_value",
-    "read_method_metrics",
-    "run_benchmark_metrics",
-    "run_command",
-    "snp_sort_key",
-    "write_config_metrics",
-    "write_debug_tables",
-    "write_solution",
-]
+    path = outdir / "config_metrics.tsv"
+    write_rows(path, [config])
+    print(path)
+    sys.stdout.write(path.read_text())

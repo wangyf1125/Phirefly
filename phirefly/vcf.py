@@ -4,16 +4,24 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 from pathlib import Path
+import subprocess
 import sys
 
 import pysam
 
 try:
+    from .core.genomics import parse_region as parse_genomic_region
     from .extract.store import iter_observation_pairs
 except ImportError:  # pragma: no cover - direct script execution fallback
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from phirefly.core.genomics import parse_region as parse_genomic_region
     from phirefly.extract.store import iter_observation_pairs  # type: ignore
+
+
+# Preserve this module's zero-based coordinate API using the shared parser.
+parse_region = partial(parse_genomic_region, zero_based_start=True)
 
 
 def load_phases(path: str | Path) -> dict[str, int]:
@@ -78,12 +86,6 @@ def load_component_phase_sets(observations_path: str | Path) -> dict[str, int]:
     return {snp_id: component_min_pos[component] for snp_id, component in snp_to_component.items()}
 
 
-def parse_region(region: str) -> tuple[str, int, int]:
-    chrom, rest = region.split(":", 1)
-    start_s, end_s = rest.replace(",", "").split("-", 1)
-    return chrom, int(start_s) - 1, int(end_s)
-
-
 def region_records(vcf: pysam.VariantFile, chrom: str, start0: int, end0: int):
     try:
         yield from vcf.fetch(chrom, start0, end0)
@@ -105,7 +107,9 @@ def export_phased_vcf(
     """Copy an input VCF header and write phased GT/PS calls for predicted SNPs."""
 
     phases, phase_sets = load_phase_records(pred_snp_phases)
-    ps_by_snp = load_component_phase_sets(observations) if observations else {}
+    ps_by_snp = load_component_phase_sets(observations) if observations and not phase_sets else {}
+    if phase_sets and set(phases) != set(phase_sets):
+        raise ValueError("Phase-set column must cover every predicted SNP")
     chrom, start0, end0 = parse_region(region)
 
     invcf = pysam.VariantFile(str(input_vcf))
@@ -118,6 +122,8 @@ def export_phased_vcf(
 
     invcf.subset_samples([sample_name])
     out_header = invcf.header.copy()
+    if "GT" not in out_header.formats:
+        out_header.formats.add("GT", 1, "String", "Genotype")
     if "PS" not in out_header.formats:
         out_header.formats.add("PS", 1, "Integer", "Phase set")
     out_path = Path(output_vcf)
@@ -151,6 +157,22 @@ def export_phased_vcf(
             written += 1
     invcf.close()
     return written, skipped, out_path
+
+
+def export_component_vcf(args, inputs, outdir: Path) -> None:
+    """Export and index a pipeline solution, retaining its established paths."""
+    plain = outdir / "phased.component_ps.vcf"
+    compressed = outdir / "phased.component_ps.vcf.gz"
+    written, skipped, output = export_phased_vcf(
+        input_vcf=inputs["input_vcf_gz"], pred_snp_phases=outdir / "snp_phases.tsv",
+        region=inputs["region"], output_vcf=plain, sample=args.sample or None,
+        ps_start=1, observations=inputs["observations"])
+    (outdir / "logs/vcf.stdout.txt").write_text(
+        f"written\t{written}\nskipped\t{skipped}\noutput_vcf\t{output}\n")
+    (outdir / "logs/vcf.stderr.txt").write_text("")
+    with compressed.open("wb") as handle:
+        subprocess.run([args.bgzip, "-f", "-c", str(plain)], check=True, stdout=handle)
+    subprocess.run([args.tabix, "-f", "-p", "vcf", str(compressed)], check=True)
 
 
 def main() -> None:

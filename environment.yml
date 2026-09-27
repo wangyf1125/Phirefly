@@ -1,0 +1,12 @@
+name: phirefly
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.23,<2
+  - scipy
+  - pysam
+  - htslib

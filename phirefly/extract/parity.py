@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from .sites import SnpSite
-from .store import open_text
+from ..core.io import open_text
 
 ObservationRow = tuple[int, int, int, int, int, float, float]
 
@@ -89,7 +89,7 @@ def write_parity_edges(path: Path, edge_rows: list[dict[str, object]]) -> None:
         "confidence",
         "max_abs_contribution",
     ]
-    with open_text(path) as out:
+    with open_text(path, "wt") as out:
         writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
         writer.writerows(edge_rows)

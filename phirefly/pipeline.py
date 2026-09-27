@@ -11,9 +11,15 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+import json
+import hashlib
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from types import SimpleNamespace
 
+from . import __version__
+from .core.io import require_fresh_output
 from .core.matrix import load_observations
 from .extract.cli import extract_observations
 from .extract.sites import load_het_snps
@@ -76,6 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validation-weight", type=float, default=1.0)
     parser.add_argument("--validation-salt", default="phirefly_phaselet_v3")
     parser.add_argument("--max-qaia-nodes", type=int, default=46_000)
+    parser.add_argument("--trace-every", type=int, default=0)
+    parser.add_argument("--trace-output", type=Path, default=None)
     parser.add_argument("--debug-output", action="store_true")
     parser.add_argument("--force", action="store_true")
     return parser
@@ -135,12 +143,15 @@ def phaselet_args(args: argparse.Namespace, observations_npz: Path, parity_edges
         max_qaia_nodes=args.max_qaia_nodes,
         weighted=args.weighted,
         debug_output=args.debug_output,
+        trace_every=args.trace_every,
+        trace_output=args.trace_output,
         force=args.force,
     )
 
 
 def run_pipeline(args: argparse.Namespace) -> None:
     out_dir = Path(args.out_dir)
+    require_fresh_output(out_dir, args.force)
     extract_prefix = out_dir / "extract" / "phirefly_reads"
     msf_prefix = out_dir / "msf" / "msf_backbone"
     phaselet_out = out_dir / "phaselet_qaia"
@@ -152,6 +163,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
     parity_edges = extract_prefix.with_suffix(".adjacent_parity_edges.tsv.gz")
     tau_phases = msf_prefix.with_suffix(".snp_phases.tsv")
 
+    started = time.monotonic()
+    timings = {}
+    stage_start = started
     sample = args.sample
     if args.force or not observations_npz.exists() or not parity_edges.exists():
         sample, sites = load_het_snps(args.vcf, args.region, args.sample)
@@ -177,12 +191,43 @@ def run_pipeline(args: argparse.Namespace) -> None:
             parity_weighted=args.weighted,
         )
 
+    timings["t_extract"] = time.monotonic() - stage_start
+    stage_start = time.monotonic()
     if args.force or not tau_phases.exists():
         obs = load_observations(str(observations_npz), args.weighted, "weight")
         read_ids, snp_ids, _matrix, sigma, delta, score, total_weight = solve_msf_backbone(obs, weighted=args.weighted)
         write_msf_solution(str(msf_prefix), read_ids, snp_ids, sigma, delta, score, total_weight)
 
+    timings["t_msf_backbone"] = time.monotonic() - stage_start
+    stage_start = time.monotonic()
     run_phaselet_qaia(phaselet_args(args, observations_npz, parity_edges, tau_phases, phaselet_out, sample))
+
+    timings["t_phaselet_to_vcf"] = time.monotonic() - stage_start
+    timings["t_total_e2e"] = time.monotonic() - started
+    (out_dir / "timings.json").write_text(json.dumps(timings, indent=2) + "\n")
+    write_run_manifest(out_dir, args, sample)
+
+
+def write_run_manifest(out_dir: Path, args: argparse.Namespace, sample: str | None) -> None:
+    package = Path(__file__).resolve().parent
+    sources = {str(p.relative_to(package)): hashlib.sha256(p.read_bytes()).hexdigest()
+               for p in sorted(package.rglob("*.py"))}
+    dependencies = {}
+    for name in ("numpy", "scipy", "pysam", "mindquantum", "torch"):
+        try:
+            dependencies[name] = version(name)
+        except PackageNotFoundError:
+            continue
+    inputs = {}
+    for name in ("bam", "vcf"):
+        path = Path(getattr(args, name)).resolve()
+        stat = path.stat()
+        inputs[name] = dict(path=str(path), size_bytes=stat.st_size, mtime_ns=stat.st_mtime_ns)
+    manifest = dict(phirefly_version=__version__, pipeline_revision="single_cfc_v1",
+                    python=sys.version, sample=sample, arguments=vars(args),
+                    dependencies=dependencies, inputs=inputs, source_sha256=sources,
+                    input_identity="path/size/mtime, not a content checksum")
+    (out_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=2, default=str) + "\n")
 
 
 def main() -> None:

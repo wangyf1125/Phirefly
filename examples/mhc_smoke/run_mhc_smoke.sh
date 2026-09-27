@@ -15,8 +15,6 @@ python -m phirefly.phaselet \
   --region chr6:28510120-33480577 \
   --observations "$DATA/phirefly_reads.observations.npz" \
   --input-vcf-gz "$DATA/shared.snps.vcf.gz" \
-  --input-vcf-plain "$DATA/shared.snps.vcf" \
-  --truth-vcf "$DATA/truth.region.bcf" \
   --tau-snp-phases "$DATA/phirefly_reads.msf.snp_phases.tsv" \
   --phaselet-config-name smoke_risk_soft \
   --min-abs-support 2.0 \
@@ -40,5 +38,4 @@ python -m phirefly.phaselet \
   --soft-edge-scale 0.25 \
   --hyperread-norm sqrt_cap \
   --hyperread-cap 10 \
-  --outroot "$OUT" \
-  --force
+  --outroot "$OUT"

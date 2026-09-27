@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 import csv
-import gzip
 from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
 
 from .sites import SnpSite
-
-
-def open_text(path: Path | str, mode: str = "wt"):
-    path = Path(path)
-    return gzip.open(path, mode) if path.suffix == ".gz" else path.open(mode)
+from ..core.io import open_text
 
 
 def ordered_read_names(read_ids: dict[str, int]) -> list[str]:
@@ -96,7 +91,6 @@ def count_observations(path: str | Path) -> int:
 __all__ = [
     "count_observations",
     "iter_observation_pairs",
-    "open_text",
     "ordered_read_names",
     "write_npz_observations",
     "write_sidecar_tables",

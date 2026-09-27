@@ -1,63 +1,27 @@
-# MHC Smoke Test
+# MHC smoke
 
-This example runs the phaselet-hyperread QAIA path on a small HG002 MHC
-read-SNP observation graph.
+This staged HG002 MHC example contains 12,259 reads, 10,200 observed SNPs and
+498,889 observations. It exercises single-round phaselet/hyperread solving and
+indexed VCF export, not BAM extraction.
 
-The bundled inputs are a small MHC smoke dataset:
-
-```text
-phirefly_reads.observations.npz
-shared.snps.vcf / shared.snps.vcf.gz
-truth.region.bcf
-phirefly_reads.msf.snp_phases.tsv
-```
-
-Run from the repository root:
-
-```bash
-python -m pip install -e '.[qaia]'
+~~~sh
+python -m pip install '.[qaia]'
 bash examples/mhc_smoke/run_mhc_smoke.sh
-```
+~~~
 
-By default the local smoke test uses `cpu-float32`, `batch_size=20`, and
-`n_iter=200`.  It still requires MindQuantum QAIA to be installed.  A plain
-system Python with only the standard library is not enough; the minimum Python
-dependencies are `numpy`, `scipy`, `pysam`, and `mindquantum`.
+The default is CFC on cpu-float32, 20 candidates, 200 iterations and seed 23.
+Truth is not used. The included truth data are for separate evaluation only.
+The old reference table predates the current inference revision and was removed;
+do not compare its phasing errors as a regression target.
 
-For a GPU QAIA smoke run, install the GPU extra first because MindQuantum's
-`gpu-float32` backend requires PyTorch:
+Use a new output directory for another run:
 
-```bash
-python -m pip install -e '.[gpu]'
-```
-
-Then use:
-
-```bash
+~~~sh
 PHIREFLY_BACKEND=gpu-float32 PHIREFLY_BATCH_SIZE=100 PHIREFLY_N_ITER=1000 \
-  bash examples/mhc_smoke/run_mhc_smoke.sh
-```
+    bash examples/mhc_smoke/run_mhc_smoke.sh out/mhc_gpu
+~~~
 
-The smoke run on H100 with the packaged MHC smoke data produced:
-
-```text
-SE %       0.255503
-HE %       0.196098
-N50 kb     308.971
-SNP %      77.678775
-reads      12259
-snps       10200
-phaselets  65
-hyperreads 75
-nodes      140
-```
-
-The full expected key/value record is in:
-
-```text
-examples/mhc_smoke/expected/mhc_smoke_reference.tsv
-```
-
-Exact QAIA scores can vary across backend/version settings. The reference file
-tracks the H100 `gpu-float32`, `CFC`, `batch_size=100`, `n_iter=1000` smoke run
-for this staged example data.
+GPU execution requires the gpu extra and a configured GPU environment.
+Inspect qaia_summary.tsv for pipeline_revision=single_cfc_v1 and qaia_calls=1.
+Exact candidate scores can vary with the numerical backend. The qaia-marked
+tests also cover fresh synthetic BAM-to-VCF extraction and export.

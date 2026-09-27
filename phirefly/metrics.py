@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Compute qHap paper-style phasing metrics from VCF outputs.
-
-The output columns match the qHap paper tables: switch error rate, Hamming
-error rate, haplotype N50, phasing completeness, SNP completeness, and running
-time. This is intended for matched BAM/VCF/truth/region comparisons.
-"""
+"""Evaluate phased VCFs, distinguishing PS span from nonoverlapping block N50."""
 
 from __future__ import annotations
 
@@ -137,12 +132,12 @@ def haplotype_n50_kb(calls: list[PhaseCall]) -> float:
 
 def phase_error_metrics(truth_calls: list[PhaseCall], pred_calls: list[PhaseCall]) -> dict[str, float | int]:
     truth_by_key = {call.key: call for call in truth_calls}
-    blocks: dict[tuple[str, str], list[tuple[PhaseCall, PhaseCall]]] = defaultdict(list)
+    blocks: dict[tuple[str, str, str], list[tuple[PhaseCall, PhaseCall]]] = defaultdict(list)
     for pred in pred_calls:
         truth = truth_by_key.get(pred.key)
         if truth is None:
             continue
-        blocks[(pred.chrom, pred.ps)].append((pred, truth))
+        blocks[(pred.chrom, pred.ps, truth.ps)].append((pred, truth))
 
     switches = 0
     assessed_pairs = 0
@@ -172,6 +167,25 @@ def phase_error_metrics(truth_calls: list[PhaseCall], pred_calls: list[PhaseCall
     }
 
 
+def phased_block_n50_kb(calls: list[PhaseCall]) -> float:
+    """N50 of WhatsHap's nonoverlapping spans, not its NG50 output column."""
+    try:
+        from whatshap.cli.stats import PhasedBlock, PhasingStats, n50
+        from whatshap.vcf import BiallelicVcfVariant
+    except ImportError as exc:
+        raise RuntimeError('Block metrics require: pip install "phirefly[benchmark]"') from exc
+    blocks = {}
+    for call in calls:
+        key = (call.chrom, call.ps)
+        if key not in blocks:
+            blocks[key] = PhasedBlock(chromosome=call.chrom)
+        blocks[key].add(BiallelicVcfVariant(call.pos - 1, call.ref, call.alt), call.phase)
+    stats = PhasingStats()
+    stats.add_blocks(list(blocks.values()))
+    spans = [block.span() for block in stats.split_blocks if len(block) > 1]
+    return n50(spans) / 1000 if spans else 0.0
+
+
 def parse_elapsed_seconds(path: Path) -> float:
     if not path.exists():
         return 0.0
@@ -193,6 +207,7 @@ METRIC_FIELDNAMES = [
     "SE_percent",
     "HE_percent",
     "haplotype_N50_kb",
+    "span_N50_kb",
     "phased_block_N50_kb",
     "phasing_completeness_percent",
     "SNP_completeness_percent",
@@ -236,7 +251,8 @@ def compute_metrics_rows(
                 "SE_percent": 100 * float(metrics["switch_error_rate"]),
                 "HE_percent": 100 * float(metrics["hamming_error_rate"]),
                 "haplotype_N50_kb": n50_kb,
-                "phased_block_N50_kb": n50_kb,
+                "span_N50_kb": n50_kb,
+                "phased_block_N50_kb": phased_block_n50_kb(pred_calls),
                 "phasing_completeness_percent": 100 * len(pred_calls) / input_het_count if input_het_count else 0.0,
                 "SNP_completeness_percent": 100 * retained_truth_snps / truth_het_count if truth_het_count else 0.0,
                 "running_time_s": runtime,

@@ -4,23 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "phirefly"
-version = "0.1.0a0"
-description = "Phaselet-hyperread haplotype phasing with quantum-inspired QAIA optimization"
+version = "0.2.0"
+description = "Hierarchical haplotype phasing from long reads and Hi-C"
 readme = "README.md"
 requires-python = ">=3.10,<3.12"
 license = "MIT"
 dependencies = [
-  "numpy",
+  "numpy>=1.23,<2",
   "scipy",
   "pysam",
 ]
 
 [project.optional-dependencies]
-qaia = ["mindquantum"]
-gpu = ["mindquantum", "torch"]
+qaia = ["mindquantum>=0.12,<0.13"]
+gpu = ["mindquantum>=0.12,<0.13", "torch"]
 plot = ["matplotlib"]
-test = ["pytest"]
-all = ["mindquantum", "torch", "matplotlib"]
+benchmark = ["whatshap==2.8"]
+test = ["pytest", "whatshap==2.8"]
+all = ["mindquantum>=0.12,<0.13", "torch", "matplotlib", "whatshap==2.8"]
+
+[project.urls]
+Homepage = "https://github.com/wangyf1125/Phirefly"
+Issues = "https://github.com/wangyf1125/Phirefly/issues"
 
 [project.scripts]
 phirefly = "phirefly.cli:main"
@@ -37,3 +42,6 @@ phirefly-hic-qc = "phirefly.hic.qc:main"
 [tool.setuptools.packages.find]
 include = ["phirefly*"]
 exclude = ["cli*", "examples*", "docs*"]
+
+[tool.pytest.ini_options]
+markers = ["qaia: integration test requiring MindQuantum and htslib commands"]

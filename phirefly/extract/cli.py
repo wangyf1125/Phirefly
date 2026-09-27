@@ -9,7 +9,8 @@ from pathlib import Path
 from .parity import build_adjacent_parity_edges, write_parity_edges
 from .bam import extract_observations_chunked
 from .sites import SnpSite, load_het_snps
-from .store import open_text, ordered_read_names, write_npz_observations, write_sidecar_tables
+from ..core.io import open_text
+from .store import ordered_read_names, write_npz_observations, write_sidecar_tables
 
 
 def extract_observations(
@@ -51,7 +52,7 @@ def extract_observations(
 
     if output_format in {"tsv", "both"}:
         ordered_reads = ordered_read_names(read_ids)
-        with open_text(obs_path) as out:
+        with open_text(obs_path, "wt") as out:
             out.write("read_id\tsnp_id\tb_ki\tbaseq\tmapq\tepsilon\tweight\n")
             for read_idx, snp_idx, allele, baseq, mapq, eps, weight in rows:
                 out.write(

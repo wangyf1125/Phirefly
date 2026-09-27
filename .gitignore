@@ -1,7 +1,16 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ipynb_checkpoints/
 *.egg-info/
 build/
 dist/
 examples/mhc_smoke/output/
+figures/.mplconfig/
+figures/solver_qc/slurm_*.out
+figures/solver_qc/slurm_*.err
+/figures/
+.venv/
+.credentials/
+.qiskit/
+out/

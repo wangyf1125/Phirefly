@@ -1,0 +1,59 @@
+{% set version = "0.2.0" %}
+
+package:
+  name: phirefly
+  version: {{ version }}
+
+source:
+  url: https://github.com/wangyf1125/Phirefly/archive/refs/tags/v{{ version }}.tar.gz
+  sha256: __RELEASE_SHA256__
+
+build:
+  number: 0
+  noarch: python
+  script: {{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv
+  entry_points:
+    - phirefly = phirefly.cli:main
+    - phirefly-run = phirefly.pipeline:main
+    - phirefly-extract = phirefly.extract.cli:main
+    - phirefly-msf = phirefly.msf:main
+    - phirefly-vcf = phirefly.vcf:main
+    - phirefly-phaselet-qaia = phirefly.phaselet.cli:main
+    - phirefly-hic-edges = phirefly.hic.component_edges:main
+    - phirefly-hic-orient = phirefly.hic.orient:main
+    - phirefly-hic-apply = phirefly.hic.apply:main
+    - phirefly-hic-qc = phirefly.hic.qc:main
+
+requirements:
+  host:
+    - python >=3.10,<3.12
+    - pip
+    - setuptools >=77
+    - wheel
+    - packaging >=24.2
+  run:
+    - python >=3.10,<3.12
+    - numpy >=1.23,<2
+    - scipy
+    - pysam
+    - htslib
+    - mindquantum >=0.12,<0.13
+
+test:
+  imports:
+    - phirefly
+    - mindquantum.algorithm.qaia
+  commands:
+    - phirefly --version
+    - phirefly run --help
+    - phirefly hic-orient --help
+
+about:
+  home: https://github.com/wangyf1125/Phirefly
+  license: MIT
+  license_file: LICENSE
+  summary: Hierarchical haplotype phasing from long reads and Hi-C
+
+extra:
+  recipe-maintainers:
+    - wangyf1125
