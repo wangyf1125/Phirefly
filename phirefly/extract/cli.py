@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 
 from .parity import build_adjacent_parity_edges, write_parity_edges
@@ -85,31 +86,22 @@ def extract_observations(
         write_parity_edges(parity_path, parity_edges)
 
     snp_path, read_path = write_sidecar_tables(out_prefix, sites, read_ids)
-    print("phirefly_extract_observations")
-    print(f"bam\t{bam_path}")
-    print(f"sample\t{sample}")
-    print(f"region\t{sites[0].chrom if sites else 'NA'}")
-    print(f"scan_mode\t{scan_mode}")
-    print(f"output_format\t{output_format}")
-    print(f"threads\t{threads}")
-    print(f"chunks\t{n_chunks}")
-    print(f"chunk_size_bp\t{chunk_size_bp}")
-    print(f"snps\t{len(sites)}")
-    print(f"reads\t{len(read_ids)}")
-    print(f"observations\t{len(rows)}")
-    print(f"ref_observations\t{n_ref}")
-    print(f"alt_observations\t{n_alt}")
-    print(f"other_base_skipped\t{n_other}")
-    if output_format in {"tsv", "both"}:
-        print(f"observations_tsv\t{obs_path}")
-    if output_format in {"npz", "both"}:
-        print(f"observations_npz\t{npz_path}")
-    if write_parity_edges_flag:
-        print(f"parity_edges\t{len(parity_edges)}")
-        print(f"parity_weighted\t{int(parity_weighted)}")
-        print(f"parity_edges_tsv\t{parity_path}")
-    print(f"snps_tsv\t{snp_path}")
-    print(f"reads_tsv\t{read_path}")
+    summary = dict(bam=bam_path, sample=sample, region=sites[0].chrom if sites else 'NA',
+                   scan_mode=scan_mode, output_format=output_format, threads=threads,
+                   chunks=n_chunks, chunk_size_bp=chunk_size_bp, snps=len(sites),
+                   reads=len(read_ids), observations=len(rows), ref_observations=n_ref,
+                   alt_observations=n_alt, other_base_skipped=n_other,
+                   observations_tsv=obs_path if output_format in {'tsv', 'both'} else '',
+                   observations_npz=npz_path if output_format in {'npz', 'both'} else '',
+                   parity_edges=len(parity_edges), parity_weighted=int(parity_weighted),
+                   parity_edges_tsv=parity_path if write_parity_edges_flag else '',
+                   snps_tsv=snp_path, reads_tsv=read_path)
+    summary_path = out_prefix.with_suffix('.extract_summary.tsv')
+    with summary_path.open('w', newline='') as handle:
+        writer = csv.writer(handle, delimiter='\t')
+        writer.writerow(('metric', 'value'))
+        writer.writerows(summary.items())
+    print(f"Extracted {len(rows):,} observations from {len(read_ids):,} reads; details: {summary_path}")
 
 
 def build_parser() -> argparse.ArgumentParser:

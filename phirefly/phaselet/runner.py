@@ -10,10 +10,11 @@ import numpy as np
 from scipy import sparse
 
 from ..core.io import read_key_value, require_fresh_output
+from ..core.runtime import check_runtime
 from ..core.matrix import build_matrix, load_npz_graph, load_observations
 from ..core.spins import sign_keep_zero
 from ..hyperread.build import build_read_entries, split_read_entries
-from ..vcf import export_component_vcf, load_phases
+from ..vcf import export_component_vcf, load_phases, resolve_sample
 from .build import build_phaselets, load_parity_edges
 from .config import parse_args, required_inputs
 from .consistency import relax_phaselets, solve_stage
@@ -105,6 +106,11 @@ def run_phaselet_qaia(args) -> None:
     started = time.monotonic()
     region_key = str(args.region_key or args.region_label or "custom")
     inputs = required_inputs(region_key, args)
+    tools = check_runtime(args.bgzip, args.tabix)
+    args.bgzip, args.tabix = tools["bgzip"], tools["tabix"]
+    args.sample = resolve_sample(inputs["input_vcf_gz"], args.sample)
+    if inputs["truth_bcf"] is not None:
+        args.truth_sample = resolve_sample(inputs["truth_bcf"], args.truth_sample)
     outdir = prepare_output(args, region_key)
 
     solve_started = time.monotonic()
@@ -150,7 +156,10 @@ def run_phaselet_qaia(args) -> None:
 
 
 def main() -> None:
-    run_phaselet_qaia(parse_args())
+    try:
+        run_phaselet_qaia(parse_args())
+    except ValueError as error:
+        raise SystemExit(f"phirefly: {error}") from None
 
 
 if __name__ == "__main__":

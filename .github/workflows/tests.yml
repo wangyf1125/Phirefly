@@ -52,4 +52,4 @@ jobs:
           OPENBLAS_NUM_THREADS: "1"
         run: |
           pytest -q
-          bash examples/mhc_smoke/run_mhc_smoke.sh
+          PHIREFLY_BENCHMARK=1 bash examples/mhc_smoke/run_mhc_smoke.sh

@@ -1,6 +1,7 @@
 include LICENSE README.md environment.yml
 recursive-include docs *.md
 recursive-include packaging *.in
+recursive-include packaging *.yaml *.py *.md *.sh
 recursive-include tests *.py
 recursive-include examples/mhc_smoke *.sh *.md *.npz *.tsv *.vcf *.gz *.tbi *.bcf *.csi
 prune examples/mhc_smoke/output

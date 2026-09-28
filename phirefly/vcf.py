@@ -24,6 +24,17 @@ except ImportError:  # pragma: no cover - direct script execution fallback
 parse_region = partial(parse_genomic_region, zero_based_start=True)
 
 
+def resolve_sample(input_vcf: str | Path, sample: str | None = None) -> str:
+    with pysam.VariantFile(str(input_vcf)) as vcf:
+        samples = list(vcf.header.samples)
+    if not samples:
+        raise ValueError(f"input VCF has no samples: {input_vcf}")
+    selected = sample or samples[0]
+    if selected not in samples:
+        raise ValueError(f"sample {selected} not found in {input_vcf}")
+    return selected
+
+
 def load_phases(path: str | Path) -> dict[str, int]:
     phases, _phase_sets = load_phase_records(path)
     return phases

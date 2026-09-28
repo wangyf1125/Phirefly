@@ -20,11 +20,13 @@ from types import SimpleNamespace
 
 from . import __version__
 from .core.io import require_fresh_output
+from .core.runtime import check_runtime
 from .core.matrix import load_observations
 from .extract.cli import extract_observations
 from .extract.sites import load_het_snps
 from .msf import solve_msf_backbone, write_solution as write_msf_solution
 from .phaselet.runner import run_phaselet_qaia
+from .vcf import resolve_sample
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -152,6 +154,9 @@ def phaselet_args(args: argparse.Namespace, observations_npz: Path, parity_edges
 def run_pipeline(args: argparse.Namespace) -> None:
     out_dir = Path(args.out_dir)
     require_fresh_output(out_dir, args.force)
+    tools = check_runtime(args.bgzip, args.tabix)
+    args.bgzip, args.tabix = tools["bgzip"], tools["tabix"]
+    args.sample = resolve_sample(args.vcf, args.sample)
     extract_prefix = out_dir / "extract" / "phirefly_reads"
     msf_prefix = out_dir / "msf" / "msf_backbone"
     phaselet_out = out_dir / "phaselet_qaia"
@@ -206,6 +211,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     timings["t_total_e2e"] = time.monotonic() - started
     (out_dir / "timings.json").write_text(json.dumps(timings, indent=2) + "\n")
     write_run_manifest(out_dir, args, sample)
+    print(f"BAM-to-VCF E2E {timings['t_total_e2e']:.2f} s; timings: {out_dir / 'timings.json'}")
 
 
 def write_run_manifest(out_dir: Path, args: argparse.Namespace, sample: str | None) -> None:
@@ -231,7 +237,10 @@ def write_run_manifest(out_dir: Path, args: argparse.Namespace, sample: str | No
 
 
 def main() -> None:
-    run_pipeline(build_parser().parse_args())
+    try:
+        run_pipeline(build_parser().parse_args())
+    except ValueError as error:
+        raise SystemExit(f"phirefly: {error}") from None
 
 
 if __name__ == "__main__":

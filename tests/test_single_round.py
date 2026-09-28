@@ -16,7 +16,7 @@ def test_single_call_after_release_and_old_cache_rejected(tmp_path, monkeypatch)
     tau = tmp_path / 'tau.tsv'
     tau.write_text('snp_id\tdelta\n' + ''.join(f'{s}\t1\n' for s in snps))
     vcf = tmp_path / 'input.vcf'
-    vcf.touch()
+    vcf.write_text('##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n')
     base = build_parser().parse_args(['--bam', 'unused', '--vcf', str(vcf),
         '--region', 'chr1:1-100', '--out-dir', str(tmp_path), '--batch-size', '4'])
     args = phaselet_args(base, obs, None, tau, tmp_path / 'solve', 'SAMPLE')
@@ -34,6 +34,7 @@ def test_single_call_after_release_and_old_cache_rejected(tmp_path, monkeypatch)
             build_ising_coupling(hyper, soft).nnz, 0.125)
 
     monkeypatch.setattr(runner, 'relax_phaselets', release)
+    monkeypatch.setattr(runner, 'check_runtime', lambda *a: {'bgzip': 'bgzip', 'tabix': 'tabix'})
     monkeypatch.setattr(consistency, 'solve_qaia', qaia)
     monkeypatch.setattr(runner, 'export_component_vcf', lambda *a: None)
     runner.run_phaselet_qaia(args)

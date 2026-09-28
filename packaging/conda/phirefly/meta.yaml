@@ -1,17 +1,19 @@
 {% set version = "0.2.1" %}
-
 package:
   name: phirefly
   version: {{ version }}
 
+# Build from an unpacked, checksum-recorded sdist, not a live research checkout.
 source:
-  url: https://github.com/wangyf1125/Phirefly/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: __RELEASE_SHA256__
+  path: {{ environ["PHIREFLY_SOURCE_DIR"] }}
 
 build:
   number: 0
   noarch: python
-  script: {{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv
+  script: |
+    "$PYTHON" -m pip install . --no-deps --no-build-isolation --no-index -vv
+    mkdir -p "$PREFIX/share/phirefly/examples"
+    cp -R examples/mhc_smoke "$PREFIX/share/phirefly/examples/"
   entry_points:
     - phirefly = phirefly.cli:main
     - phirefly-run = phirefly.pipeline:main
@@ -26,7 +28,7 @@ build:
 
 requirements:
   host:
-    - python >=3.10,<3.12
+    - python 3.11.*
     - pip
     - setuptools >=77
     - wheel
@@ -38,15 +40,19 @@ requirements:
     - pysam
     - htslib
     - mindquantum >=0.12,<0.13
+    - whatshap ==2.8
 
 test:
-  imports:
-    - phirefly
-    - mindquantum.algorithm.qaia
+  requires:
+    - pytest
+    - whatshap ==2.8
+  source_files:
+    - tests
+    - examples/mhc_smoke
   commands:
     - phirefly --version
-    - phirefly run --help
-    - phirefly hic-orient --help
+    - python -m pytest -q tests
+    - PHIREFLY_BENCHMARK=1 bash "$PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" smoke-output
 
 about:
   home: https://github.com/wangyf1125/Phirefly

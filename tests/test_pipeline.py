@@ -56,18 +56,22 @@ def toy_inputs(tmp_path):
 
 @pytest.mark.qaia
 @pytest.mark.parametrize("threads", [1, 2])
-def test_bam_to_indexed_vcf_without_truth(tmp_path, threads):
+def test_bam_to_indexed_vcf_without_truth(tmp_path, threads, capsys):
     pytest.importorskip("mindquantum")
     if not shutil.which("bgzip") or not shutil.which("tabix"):
         pytest.skip("htslib commands are required")
     bam, vcf = toy_inputs(tmp_path)
     out = tmp_path / "out"
     args = build_parser().parse_args([
-        "--bam", str(bam), "--vcf", vcf, "--sample", "SAMPLE",
+        "--bam", str(bam), "--vcf", vcf,
         "--region", "chr1:1-100", "--out-dir", str(out),
         "--threads", str(threads), "--chunk-size-bp", "20",
         "--batch-size", "4", "--n-iter", "20", "--backend", "cpu-float32"])
     run_pipeline(args)
+    console = capsys.readouterr().out
+    assert 'unique couplings' in console
+    assert '\tregion_key\t' not in console
+    assert len(console.splitlines()) < 12
     outputs = list(out.rglob("phased.component_ps.vcf.gz"))
     assert len(outputs) == 1
     with pysam.VariantFile(outputs[0]) as result:
@@ -86,6 +90,15 @@ def test_bam_to_indexed_vcf_without_truth(tmp_path, threads):
     assert not list(out.rglob("hyperread_matrix.npz"))
     assert not list(out.rglob("phaselet_edges.tsv"))
     assert not list(out.rglob("phaselet_hyperread.metrics.tsv"))
+    from phirefly.phaselet.output import GRAPH_FIELDS, INITIAL_GRAPH_FIELDS
+    with next(out.rglob('config_metrics.tsv')).open() as handle:
+        config = next(csv.DictReader(handle, delimiter='\t'))
+    assert config['sample'] == 'SAMPLE'
+    assert all(config[key] != '' for key in GRAPH_FIELDS)
+    assert all(config[key] == config['initial_' + key] for key in INITIAL_GRAPH_FIELDS)
+    assert int(config['unique_couplings']) * 2 == int(config['coupling_nnz'])
+    assert float(config['qaia_runtime_s']) >= 0
+    assert config['SE_percent'] == config['HE_percent'] == ''
     with pytest.raises(ValueError, match="not empty"):
         run_pipeline(args)
 

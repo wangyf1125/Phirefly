@@ -7,6 +7,7 @@ import sys
 from importlib import import_module
 
 from . import __version__
+from .core.runtime import check_python_environment
 
 COMMANDS = {
     "run": "pipeline",
@@ -34,11 +35,14 @@ def main() -> None:
     if args.command is None:
         parser.print_help()
         return
-    command = import_module(f"phirefly.{COMMANDS[args.command]}")
     previous = sys.argv
     try:
+        check_python_environment()
+        command = import_module(f"phirefly.{COMMANDS[args.command]}")
         sys.argv = [f"phirefly {args.command}", *args.args]
         command.main()
+    except ValueError as error:
+        parser.exit(2, f"phirefly: {error}\n")
     finally:
         sys.argv = previous
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "phirefly"
-version = "0.2.0"
+version = "0.2.1"
 description = "Hierarchical haplotype phasing from long reads and Hi-C"
 readme = "README.md"
 requires-python = ">=3.10,<3.12"

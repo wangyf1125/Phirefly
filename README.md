@@ -7,21 +7,25 @@ original read objective. Phasing does not require a truth VCF.
 
 ## Installation
 
-Python 3.10/3.11 and htslib are required. On Linux:
+Linux x86-64, Python 3.11, CPU CFC:
 
 ~~~sh
-git clone --branch v0.2.0 https://github.com/wangyf1125/Phirefly.git
-cd Phirefly
-conda env create -f environment.yml
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1
+conda create -n phirefly --override-channels -c y1fei -c conda-forge \
+    -c bioconda python=3.11 y1fei::phirefly=0.2.1
 conda activate phirefly
-python -m pip install '.[qaia]'
 phirefly --version
-bash examples/mhc_smoke/run_mhc_smoke.sh
+PHIREFLY_BENCHMARK=1 bash \
+    "$CONDA_PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" out/mhc
 ~~~
 
-This uses Conda for the environment and pip for Phirefly/MindQuantum.
-Phirefly is not yet on Bioconda; **conda install phirefly is not available**.
-See [installation notes](docs/install.md) for GPU and Bioconda details.
+The [y1fei personal channel](https://anaconda.org/y1fei/phirefly) provides
+Phirefly and its required MindQuantum/Rich builds. Conda installs all dependencies,
+including htslib and WhatsHap; no separate pip step is needed. This is not a
+Bioconda release. The bundled MHC example includes HG002 truth for HE/SE checks.
+See [installation notes](docs/install.md) for source installation and GPU support,
+and [packaging/conda](packaging/conda/README.md) for recipes.
 
 ## Usage
 
@@ -43,14 +47,16 @@ out/chr20/phaselet_qaia/phirefly/alg_CFC/phaselet_risk0p45_soft0p75_s0p25/phased
 Use a new output directory for each configuration. Existing results are never
 reused implicitly; --force recomputes the workflow. The run_manifest.json records
 arguments, dependency versions and source checksums. Use --debug-output for graph
-tables. GPU execution requires --backend gpu-float32 and a configured GPU.
+tables. The terminal prints a short summary; config_metrics.tsv keeps the full
+record. GPU execution requires --backend gpu-float32 and a configured GPU.
 
 ## Hi-C and Evaluation
 
 Hi-C is part of Phirefly: hic-edges, hic-orient and hic-apply extend the
 long-read phase sets using contact evidence. See the [Hi-C example](docs/hic.md).
-Use phirefly benchmark --help for truth-based evaluation; install the
-benchmark extra first. See [metric definitions](docs/reproducibility.md).
+Use phirefly benchmark --help for truth-based evaluation. The Conda package
+includes its dependencies; pip installations need the benchmark extra.
+See [metric definitions](docs/reproducibility.md).
 
 ## Development
 

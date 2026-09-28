@@ -5,11 +5,29 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DATA="$ROOT/examples/mhc_smoke/data"
 OUT="${1:-$ROOT/examples/mhc_smoke/output}"
 
-mkdir -p "$OUT"
+PYTHON="${PHIREFLY_PYTHON:-python}"
+BENCHMARK="${PHIREFLY_BENCHMARK:-0}"
+# Test the installed distribution, never inherited PYTHONPATH or checkout imports.
+"$PYTHON" -I -c 'import phirefly' || {
+  printf '%s\n' 'Activate the Phirefly environment and install .[qaia] before running smoke.' >&2
+  exit 1
+}
+case "$BENCHMARK" in
+  0) ;;
+  1) "$PYTHON" -I -c 'import whatshap' || {
+       printf '%s\n' 'Benchmark smoke also requires WhatsHap 2.8: install .[qaia,benchmark].' >&2
+       exit 1
+     } ;;
+  *) printf '%s\n' 'PHIREFLY_BENCHMARK must be 0 or 1.' >&2; exit 1 ;;
+esac
+RESULT="$OUT/mhc/alg_CFC/phaselet_smoke_risk_soft"
+if [[ -d "$RESULT" ]] && [[ -n "$(ls -A "$RESULT")" ]]; then
+  printf '%s\n' "Smoke output already exists: $RESULT" \
+    'Keep existing results; pass a new output directory as the first argument.' >&2
+  exit 1
+fi
 
-export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
-
-python -m phirefly.phaselet \
+"$PYTHON" -I -m phirefly.phaselet \
   --region-key mhc \
   --region-label MHC \
   --region chr6:28510120-33480577 \
@@ -39,3 +57,23 @@ python -m phirefly.phaselet \
   --hyperread-norm sqrt_cap \
   --hyperread-cap 10 \
   --outroot "$OUT"
+
+if [[ "$BENCHMARK" == 1 ]]; then
+  "$PYTHON" -I -m phirefly.cli benchmark \
+    --input-vcf "$DATA/shared.snps.vcf.gz" \
+    --truth-vcf "$DATA/truth.region.bcf" \
+    --input-sample HG002 --truth-sample HG002 --pred-sample HG002 \
+    --region chr6:28510120-33480577 \
+    --method "Phirefly:$RESULT/phased.component_ps.vcf.gz" \
+    --out-tsv "$RESULT/benchmark_metrics.tsv"
+  "$PYTHON" -I - "$RESULT/benchmark_metrics.tsv" <<'PY'
+import csv
+import sys
+with open(sys.argv[1]) as handle:
+    row = next(csv.DictReader(handle, delimiter='\t'))
+if int(row['assessed_pairs']) == 0 or int(row['hamming_denominator']) == 0:
+    raise SystemExit('No evaluable truth overlap; benchmark smoke failed.')
+print(f"SE {float(row['SE_percent']):.3f}% ({row['switches']}/{row['assessed_pairs']})  "
+      f"HE {float(row['HE_percent']):.3f}% ({row['hamming']}/{row['hamming_denominator']})")
+PY
+fi

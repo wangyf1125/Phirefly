@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import csv
 import shutil
-import sys
 from pathlib import Path
 
 import numpy as np
 
 from ..core.genomics import snp_sort_key
 from ..qaia import algorithm_dt
+from .. import __version__
 
 
 RUN_SETTINGS = (
@@ -52,6 +52,11 @@ BENCHMARK_FIELDS = (
     "phasing_completeness_percent", "SNP_completeness_percent", "switches",
     "hamming", "hamming_denominator",
 )
+INITIAL_GRAPH_FIELDS = (
+    "parity_edges", "soft_bridge_edges", "weak_phaselet_edges", "conflicting_phaselet_edges",
+    "mean_retained_bridge_risk", "max_retained_bridge_risk",
+    "mean_soft_bridge_risk", "max_soft_bridge_risk",
+)
 DEBUG_TABLES = {
     "phaselets": ("phaselet_id", "chrom", "start", "end", "n_snps"),
     "phaselet_edges": ("snp_i", "snp_j", "status"),
@@ -74,6 +79,7 @@ def summarize_solution(args, data, solution, phaselets, metadata) -> dict:
     hyper = solution.hyper_stats
     return {
         **metadata,
+        **{key: metadata[f"initial_{key}"] for key in INITIAL_GRAPH_FIELDS},
         **{key: getattr(args, key) for key in RUN_SETTINGS},
         "dt": float(algorithm_dt(args.algorithm)),
         "phaselet_config": str(args.phaselet_config_name),
@@ -98,6 +104,7 @@ def summarize_solution(args, data, solution, phaselets, metadata) -> dict:
         "compressed_nodes": sum(solution.hyper.shape),
         "hyper_matrix_nnz": solution.hyper.nnz,
         "coupling_nnz": solution.qaia.coupling_nnz,
+        "unique_couplings": solution.qaia.coupling_nnz // 2,
         "retained_phaselet_edges": len(data.snp_ids) - len(phaselets),
         **solution.soft_stats,
         "single_phaselet_constant": f"{hyper['single_phaselet_constant']:.8f}",
@@ -178,8 +185,16 @@ def write_config_metrics(outdir, inputs, args, summary, component_metrics, elaps
         **{f"{name}_tsv": outdir / f"{name}.tsv" if args.debug_output else "" for name in DEBUG_TABLES},
         "metrics_tsv": outdir / "paper_metrics/phaselet_hyperread.metrics.tsv" if have_truth else "",
         "solve_time_log": outdir / "logs/solve.time.txt",
+        "qaia_runtime_s": summary["qaia_runtime_s"],
+        "unique_couplings": summary["unique_couplings"],
+        "graph_statistics_stage": "final; parity/risk classification fields describe initial partition",
+        **{f"initial_{key}": summary[f"initial_{key}"] for key in INITIAL_GRAPH_FIELDS},
     }
     path = outdir / "config_metrics.tsv"
     write_rows(path, [config])
-    print(path)
-    sys.stdout.write(path.read_text())
+    print(f"Phirefly {__version__} | {inputs['label']} | {args.sample} | {args.backend}")
+    print(f"Reads {summary['reads']:,}  SNPs {summary['snps']:,}  "
+          f"Phaselets {summary['phaselets']:,}  Hyperreads {summary['hyperreads']:,}")
+    print(f"Graph {summary['compressed_nodes']:,} nodes / {summary['unique_couplings']:,} unique couplings")
+    print(f"CFC {float(summary['qaia_runtime_s']):.3f} s  Phaselet workflow {elapsed:.2f} s")
+    print(f"VCF: {config['phased_vcf']}\nDetails: {path}")

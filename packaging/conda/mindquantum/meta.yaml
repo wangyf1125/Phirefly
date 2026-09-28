@@ -1,0 +1,56 @@
+{% set version = "0.12.0" %}
+{% set wheel = "mindquantum-0.12.0-cp311-cp311-manylinux1_x86_64.whl" %}
+package:
+  name: mindquantum
+  version: {{ version }}
+
+source:
+  - url: https://files.pythonhosted.org/packages/8c/4a/61f24b0b2d21111b0019eb2b79070a0967673087e72373bf44518cc9c7b7/{{ wheel }}
+    sha256: e0fad57dab858a5274ec296a8e234594fe05cd61e172719886b2e9526aff8146
+  - url: https://raw.githubusercontent.com/mindspore-ai/mindquantum/2e6cbe41d648e046dbe7ef84af44d7534a8d0c7b/LICENSE
+    sha256: c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
+    folder: upstream_license
+  - url: https://raw.githubusercontent.com/mindspore-ai/mindquantum/2e6cbe41d648e046dbe7ef84af44d7534a8d0c7b/NOTICE
+    sha256: ce64ef0059eafc9deac8eaf061331feb0dcaf7cd44c7afdc15d67263b25ffed9
+    folder: upstream_license
+
+build:
+  number: 0
+  string: py311_0
+  skip: true  # [not linux64]
+  binary_relocation: false
+  script: '"$PYTHON" -m pip install {{ wheel }} --no-deps --no-index -vv'
+
+requirements:
+  host:
+    - python 3.11.*
+    - pip
+  run:
+    - python >=3.11,<3.12.0a0
+    - numpy >=1.23,<2
+    - scipy >=1.5.3
+    - matplotlib-base >=3.4.3
+    - rich ==10.9.0
+    - libgcc-ng
+    - libstdcxx-ng
+
+test:
+  imports:
+    - mindquantum
+    - mindquantum.algorithm.qaia
+
+about:
+  home: https://www.mindspore.cn/mindquantum/docs/en/master/index.html
+  license: Apache-2.0
+  license_file:
+    - upstream_license/LICENSE
+    - upstream_license/NOTICE
+  summary: MindQuantum upstream wheel repackaged for Phirefly's community channel
+  description: |
+    Unmodified upstream Linux x86-64 CPython 3.11 wheel, not an official
+    MindQuantum Conda distribution. CPU CFC is tested; GPU execution requires
+    additional compatible libraries and is not certified by this recipe.
+
+extra:
+  recipe-maintainers:
+    - wangyf1125

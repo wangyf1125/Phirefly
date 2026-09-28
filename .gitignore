@@ -11,6 +11,8 @@ figures/solver_qc/slurm_*.out
 figures/solver_qc/slurm_*.err
 /figures/
 .venv/
+.venv-*/
+examples/mhc_smoke/output_backup_*/
 .credentials/
 .qiskit/
 out/

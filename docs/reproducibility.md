@@ -43,3 +43,20 @@ Validation on independent samples with this revision remains outstanding.
 IBM hardware experiments sample the fixed final graph using QAOA and retain
 classical preprocessing and selection. They are research experiments outside
 the release CLI, not evidence of quantum advantage or a dependency of Phirefly.
+
+## Output records
+
+The terminal is a short human-readable summary, not a TSV interface.
+config_metrics.tsv retains the detailed machine-readable record. Columns named
+initial_* describe parity classification before the read-consistency split;
+phaselets, hyperreads and couplings describe the final graph. For compatibility,
+parity_edges, soft_bridge_edges, weak_phaselet_edges, conflicting_phaselet_edges
+and the bridge-risk summaries alias their initial_* values. They are not final
+soft-coupling counts. retained_phaselet_edges describes the final forest size.
+
+unique_couplings counts each undirected term once; coupling_nnz counts both
+entries of the symmetric matrix. qaia_runtime_s is CFC-only; solver_runtime_s is
+the phaselet computation stage including input loading/build/selection, and
+config_wall_s includes phaselet output/export. Neither is BAM-to-VCF E2E; the
+one-command workflow records t_total_e2e in timings.json. Missing truth metrics
+are blank, not zero. The resolved input sample is always recorded.

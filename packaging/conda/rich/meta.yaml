@@ -1,0 +1,41 @@
+package:
+  name: rich
+  version: 10.9.0
+
+source:
+  url: https://files.pythonhosted.org/packages/e9/c4/ea9a6e34dd5c4c3049b0a86c49feb7f38c9f5e901ffb6eeb832e89dfa540/rich-10.9.0-py3-none-any.whl
+  sha256: 2c84d9b3459c16bf413fe0f9644c7ae1791971e0bb944dfae56e7c7634b187ab
+
+build:
+  number: 0
+  noarch: python
+  script: |
+    "$PYTHON" -m pip install rich-10.9.0-py3-none-any.whl --no-deps --no-index -vv
+    cp "$SP_DIR/rich-10.9.0.dist-info/LICENSE" LICENSE
+
+requirements:
+  host:
+    - python 3.11.*
+    - pip
+  run:
+    - python >=3.10,<3.12
+    - pygments >=2.6,<3
+    - commonmark >=0.9,<0.10
+    - colorama >=0.4,<0.5
+
+test:
+  imports:
+    - rich
+    - rich.console
+  commands:
+    - python -c "from rich.console import Console; Console().print('Rich 10.9.0 smoke')"
+
+about:
+  home: https://github.com/Textualize/rich
+  license: MIT
+  license_file: LICENSE
+  summary: Unmodified Rich 10.9.0 wheel for MindQuantum's pinned dependency
+
+extra:
+  recipe-maintainers:
+    - wangyf1125
