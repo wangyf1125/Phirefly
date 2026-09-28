@@ -44,4 +44,5 @@ include = ["phirefly*"]
 exclude = ["cli*", "examples*", "docs*"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = ["qaia: integration test requiring MindQuantum and htslib commands"]
