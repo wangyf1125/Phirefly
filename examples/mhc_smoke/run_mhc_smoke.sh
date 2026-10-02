@@ -5,11 +5,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DATA="$ROOT/examples/mhc_smoke/data"
 OUT="${1:-$ROOT/examples/mhc_smoke/output}"
 
-PYTHON="${PHIREFLY_PYTHON:-python}"
+if [[ -n "${PHIREFLY_PYTHON:-}" ]]; then
+  PYTHON="$PHIREFLY_PYTHON"
+elif [[ -n "${VIRTUAL_ENV:-}" ]]; then
+  PYTHON="$VIRTUAL_ENV/bin/python"
+elif [[ -n "${CONDA_PREFIX:-}" ]]; then
+  PYTHON="$CONDA_PREFIX/bin/python"
+else
+  PYTHON="python"
+fi
 BENCHMARK="${PHIREFLY_BENCHMARK:-0}"
 # Test the installed distribution, never inherited PYTHONPATH or checkout imports.
 "$PYTHON" -I -c 'import phirefly' || {
-  printf '%s\n' 'Activate the Phirefly environment and install .[qaia] before running smoke.' >&2
+  printf '%s\n' "Cannot import Phirefly using: $PYTHON" \
+    'Set PHIREFLY_PYTHON to the Python executable where Phirefly is installed.' >&2
   exit 1
 }
 case "$BENCHMARK" in

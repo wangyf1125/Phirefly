@@ -5,5 +5,7 @@ recursive-include packaging *.yaml *.py *.md *.sh
 recursive-include tests *.py
 recursive-include examples/mhc_smoke *.sh *.md *.npz *.tsv *.vcf *.gz *.tbi *.bcf *.csi
 prune examples/mhc_smoke/output
+recursive-include examples/chr1 *.sh *.md *.npz *.tsv *.csv *.gz *.tbi *.bcf *.csi
+include examples/chr1/SHA256SUMS
 prune figures
 global-exclude __pycache__ *.py[cod]

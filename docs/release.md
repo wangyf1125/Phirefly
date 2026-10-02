@@ -1,7 +1,15 @@
 # Release checks
 
-The source version is 0.2.1. Do not overwrite the v0.2.0 release tag.
+The source version is 0.2.2. Do not overwrite existing release tags or packages.
 Public release and Bioconda availability are separate from local tests.
+
+## Version 0.2.2
+
+This patch adds concise common-option help, --help-all and parameter notes,
+fixes selection of the active Python in the MHC smoke script, and includes a
+full-chromosome staged chr1 example with checksums and measured resource tables.
+The inference algorithm and default settings are unchanged. Validation and
+remote-channel publication must finish before advertising a new Conda install.
 
 Version 0.2.1 changes runtime preflight, installed-package smoke isolation,
 terminal summaries and reporting fields. It does not change the phasing

@@ -16,7 +16,7 @@ conda create -n phirefly --override-channels -c y1fei -c conda-forge \
     -c bioconda python=3.11 y1fei::phirefly=0.2.1
 conda activate phirefly
 phirefly --version
-PHIREFLY_BENCHMARK=1 bash \
+PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 bash \
     "$CONDA_PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" out/mhc
 ~~~
 
@@ -27,7 +27,16 @@ Bioconda release. The bundled MHC example includes HG002 truth for HE/SE checks.
 See [installation notes](docs/install.md) for source installation and GPU support,
 and [packaging/conda](packaging/conda/README.md) for recipes.
 
+Examples: [MHC installation smoke](examples/mhc_smoke) and
+[full HG002 chromosome 1](examples/chr1), with truth, checksums and resource
+measurement commands. The chromosome example starts from observations; the
+separate BAM-to-VCF command measures the complete workflow.
+
 ## Usage
+
+In this source revision, `phirefly run --help` lists common options and
+`--help-all` includes advanced settings and defaults. The published Conda 0.2.1
+build still lists all options in `--help`. See [parameter notes](docs/parameters.md).
 
 Input: an indexed, coordinate-sorted BAM and an indexed biallelic heterozygous
 SNP VCF on the same reference. Coordinates are 1-based, inclusive.

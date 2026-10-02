@@ -13,7 +13,10 @@ The default is CFC on cpu-float32, 20 candidates, 200 iterations and seed 23.
 Truth is not used by the solver. The included truth data are for separate evaluation only.
 The script runs the installed package in Python isolated mode, ignoring inherited
 PYTHONPATH/PYTHONHOME and checkout imports. Activate the intended environment
-first, or set PHIREFLY_PYTHON to its Python executable. bgzip and tabix must be
+first, or set PHIREFLY_PYTHON to its Python executable. Interpreter selection is
+PHIREFLY_PYTHON, then VIRTUAL_ENV/bin/python, then CONDA_PREFIX/bin/python, then
+python on PATH. An explicit setting is not silently replaced on failure.
+bgzip and tabix must be
 on PATH. Missing prerequisites fail before computation or output creation.
 The old reference table predates the current inference revision and was removed;
 do not compare its phasing errors as a regression target.
@@ -43,7 +46,7 @@ The y1fei Conda package already includes WhatsHap 2.8 and these example files.
 It does not need a separate pip installation or repository checkout:
 
 ~~~sh
-PHIREFLY_BENCHMARK=1 bash \
+PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 bash \
     "$CONDA_PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" out/mhc_evaluated
 ~~~
 

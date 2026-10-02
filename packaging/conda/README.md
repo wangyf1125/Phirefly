@@ -73,7 +73,7 @@ After all three packages are publicly indexed, verify a second empty installatio
 conda create -n phirefly --override-channels -c y1fei -c conda-forge \
     -c bioconda python=3.11 y1fei::phirefly=0.2.1
 conda activate phirefly
-PHIREFLY_BENCHMARK=1 bash \
+PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 bash \
     "$CONDA_PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" out/mhc
 ~~~
 

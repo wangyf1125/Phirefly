@@ -1,4 +1,4 @@
-{% set version = "0.2.1" %}
+{% set version = "0.2.2" %}
 package:
   name: phirefly
   version: {{ version }}
@@ -14,6 +14,7 @@ build:
     "$PYTHON" -m pip install . --no-deps --no-build-isolation --no-index -vv
     mkdir -p "$PREFIX/share/phirefly/examples"
     cp -R examples/mhc_smoke "$PREFIX/share/phirefly/examples/"
+    cp -R examples/chr1 "$PREFIX/share/phirefly/examples/"
   entry_points:
     - phirefly = phirefly.cli:main
     - phirefly-run = phirefly.pipeline:main
@@ -51,6 +52,7 @@ test:
     - examples/mhc_smoke
   commands:
     - phirefly --version
+    - phirefly run --help-all
     - python -m pytest -q tests
     - PHIREFLY_BENCHMARK=1 bash "$PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" smoke-output
 

@@ -16,7 +16,7 @@ conda create -n phirefly --override-channels -c y1fei -c conda-forge \
     -c bioconda python=3.11 y1fei::phirefly=0.2.1
 conda activate phirefly
 phirefly --version
-PHIREFLY_BENCHMARK=1 bash \
+PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 bash \
     "$CONDA_PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" out/mhc
 ~~~
 
@@ -25,6 +25,12 @@ Only Phirefly needs to be requested. Conda automatically installs MindQuantum
 The personal-channel MindQuantum/Rich builds repackage unmodified upstream
 wheels. There is no post-link pip installation. GPU libraries are not included
 or certified by this CPU validation. This is not a Bioconda release.
+
+On HPC, a shell startup file or module can put another Python first on PATH.
+The smoke command explicitly selects the activated Conda environment's Python;
+`python -I` isolates imports, but does not select the interpreter. If
+`phirefly --version` succeeds while smoke cannot import Phirefly, use the
+PHIREFLY_PYTHON setting above instead of reinstalling.
 
 ## Conda plus pip
 

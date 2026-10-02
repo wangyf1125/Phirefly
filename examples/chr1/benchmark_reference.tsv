@@ -1,0 +1,2 @@
+method	SE_percent	HE_percent	haplotype_N50_kb	span_N50_kb	phased_block_N50_kb	phasing_completeness_percent	SNP_completeness_percent	switches	assessed_pairs	hamming	hamming_denominator	phased_snps	input_het_snps	truth_het_snps
+Phirefly	0.253556335932385	0.45034101480792366	587.111	587.111	587.11	100.0	91.01536406145624	426	168010	760	168761	168950	168950	185628
