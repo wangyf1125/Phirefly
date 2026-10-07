@@ -1,4 +1,4 @@
-{% set version = "0.2.1" %}
+{% set version = "0.2.2" %}
 
 package:
   name: phirefly
@@ -19,9 +19,6 @@ build:
     - phirefly-msf = phirefly.msf:main
     - phirefly-vcf = phirefly.vcf:main
     - phirefly-phaselet-qaia = phirefly.phaselet.cli:main
-    - phirefly-hic-edges = phirefly.hic.component_edges:main
-    - phirefly-hic-orient = phirefly.hic.orient:main
-    - phirefly-hic-apply = phirefly.hic.apply:main
     - phirefly-hic-qc = phirefly.hic.qc:main
 
 requirements:
@@ -46,7 +43,7 @@ test:
   commands:
     - phirefly --version
     - phirefly run --help
-    - phirefly hic-orient --help
+    - phirefly run --help-all
 
 about:
   home: https://github.com/wangyf1125/Phirefly

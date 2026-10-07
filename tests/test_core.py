@@ -8,7 +8,6 @@ import pytest
 from phirefly.hyperread import build_hyperread_matrix
 from phirefly.core.matrix import load_npz_graph
 from phirefly.extract import SnpSite, build_adjacent_parity_edges, write_parity_edges
-from phirefly.hic.orient import orient_components_msf, retained_edges
 from phirefly.metrics import compute_metrics_rows
 from phirefly.phaselet import build_phaselets, load_parity_edges
 from phirefly.vcf import export_phased_vcf
@@ -224,32 +223,3 @@ def test_metrics_uses_requested_pred_sample(tmp_path):
     assert rows[0]["HE_percent"] == 0.0
     assert rows[0]["span_N50_kb"] == rows[0]["haplotype_N50_kb"] == 0.011
     assert rows[0]["phased_block_N50_kb"] == 0.010
-
-
-def test_hic_component_orientation_is_msf_only():
-    rows = [
-        {
-            "component_i": "10",
-            "component_j": "20",
-            "score": "5.0",
-            "abs_score": "5.0",
-            "contacts": "20",
-            "confidence": "1.0",
-        },
-        {
-            "component_i": "20",
-            "component_j": "30",
-            "score": "-4.0",
-            "abs_score": "4.0",
-            "contacts": "20",
-            "confidence": "1.0",
-        },
-    ]
-    edges = retained_edges(rows, min_contacts=10, min_confidence=0.8, min_abs_score=0.0)
-    orientation, phase_sets, selected = orient_components_msf(edges)
-    assert len(selected) == 2
-    assert orientation["20"] == orientation["10"]
-    assert orientation["30"] == -orientation["20"]
-    assert phase_sets["10"] == "10"
-    assert phase_sets["20"] == "10"
-    assert phase_sets["30"] == "10"

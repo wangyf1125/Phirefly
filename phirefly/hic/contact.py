@@ -19,6 +19,8 @@ def alignment_anchor(aln, site_map, site_positions, args):
 
     if aln.is_unmapped:
         return None
+    if aln.is_duplicate or aln.is_qcfail:
+        return None
     if aln.is_secondary and not args.keep_secondary:
         return None
     if aln.is_supplementary and not args.keep_supplementary:
@@ -38,9 +40,15 @@ def alignment_anchor(aln, site_map, site_positions, args):
         return None
 
     seq = aln.query_sequence.upper()
+    min_baseq = getattr(args, 'min_baseq', 0)
+    qualities = aln.query_qualities
+    if min_baseq > 0 and qualities is None:
+        return None
     component_score: Counter[str] = Counter()
-    n_sites = 0
+    component_sites: Counter[str] = Counter()
     for ref_pos, qpos in aligned_snp_query_positions(aln, positions[left:right]):
+        if qualities is not None and qualities[qpos] < min_baseq:
+            continue
         base = seq[qpos]
         for site in site_map[chrom][ref_pos]:
             if base == site.ref:
@@ -50,12 +58,12 @@ def alignment_anchor(aln, site_map, site_positions, args):
             else:
                 continue
             component_score[site.component] += allele * site.delta
-            n_sites += 1
+            component_sites[site.component] += 1
 
-    if n_sites < args.min_sites or not component_score:
+    if not component_score:
         return None
     component, score_sum = max(component_score.items(), key=lambda item: abs(item[1]))
-    if abs(score_sum) < args.min_local_score:
+    if component_sites[component] < args.min_sites or abs(score_sum) < args.min_local_score:
         return None
     mapq_scale = min(float(aln.mapping_quality), float(args.mapq_cap)) / float(args.mapq_cap)
     return {
@@ -63,7 +71,7 @@ def alignment_anchor(aln, site_map, site_positions, args):
         "component_id": component,
         "sign": 1 if score_sum > 0 else -1,
         "score": abs(float(score_sum)) * max(mapq_scale, 0.05),
-        "n_sites": int(n_sites),
+        "n_sites": int(component_sites[component]),
         "chrom": chrom,
         "start": int(aln.reference_start) + 1,
         "end": int(aln.reference_end),

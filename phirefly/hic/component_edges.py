@@ -3,15 +3,12 @@
 
 from __future__ import annotations
 
-import argparse
 import csv
 from collections import defaultdict
 from pathlib import Path
 
 import pysam
 
-from ..core.genomics import apply_region_alias, parse_chrom_alias, parse_region
-from .components import load_component_site_map
 from .contact import alignment_anchor
 
 
@@ -27,7 +24,9 @@ def remap_site_chroms(site_map, site_positions, aliases: dict[str, str]):
 def collect_anchors(contact_bam: str | Path, region: tuple[str, int, int], site_map, site_positions, args):
     anchors_by_name: dict[str, list[dict]] = defaultdict(list)
     chrom, start0, end0 = region
-    with pysam.AlignmentFile(str(contact_bam), "rb") as bam:
+    with pysam.AlignmentFile(str(contact_bam), "rb", threads=getattr(args, 'threads', 1)) as bam:
+        if not bam.has_index():
+            raise ValueError(f'Hi-C BAM must be indexed: {contact_bam}')
         for aln in bam.fetch(chrom, start0, end0):
             anchor = alignment_anchor(aln, site_map, site_positions, args)
             if anchor is not None:
@@ -96,66 +95,4 @@ def write_rows(path: Path, rows: list[dict[str, object]], fieldnames: list[str])
         writer.writerows(rows)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--observations", required=True)
-    parser.add_argument("--haplotags", default=None, help="Accepted for run provenance; not used by this edge builder.")
-    parser.add_argument("--snp-phases", required=True)
-    parser.add_argument("--contact-bam", required=True)
-    parser.add_argument("--region", required=True)
-    parser.add_argument("--contact-region", default=None)
-    parser.add_argument("--chrom-alias", action="append", default=[])
-    parser.add_argument("--out-prefix", required=True)
-    parser.add_argument("--min-mapq", type=int, default=20)
-    parser.add_argument("--mapq-cap", type=int, default=60)
-    parser.add_argument("--min-sites", type=int, default=1)
-    parser.add_argument("--min-local-score", type=float, default=1.0)
-    parser.add_argument("--alpha", type=float, default=0.1)
-    parser.add_argument("--threads", type=int, default=1, help="Reserved for future chunk parallelism.")
-    parser.add_argument("--chunk-size-bp", type=int, default=0, help="Reserved for future chunk parallelism.")
-    parser.add_argument("--keep-secondary", action="store_true")
-    parser.add_argument("--keep-supplementary", action="store_true")
-    return parser
-
-
-def main() -> None:
-    args = build_parser().parse_args()
-    aliases = parse_chrom_alias(args.chrom_alias)
-    site_map, site_positions = load_component_site_map(args.observations, args.snp_phases)
-    site_map, site_positions = remap_site_chroms(site_map, site_positions, aliases)
-    base_region = parse_region(args.region, zero_based_start=True)
-    if base_region is None:
-        raise SystemExit("--region is required")
-    contact_region = (
-        parse_region(args.contact_region, zero_based_start=True)
-        if args.contact_region
-        else apply_region_alias(base_region, aliases)
-    )
-    if contact_region is None:
-        raise SystemExit("--contact-region could not be resolved")
-
-    anchors = collect_anchors(args.contact_bam, contact_region, site_map, site_positions, args)
-    edge_rows = component_edges_from_anchors(anchors, alpha=float(args.alpha))
-    prefix = Path(args.out_prefix)
-    edge_path = prefix.with_suffix(".block_edges.tsv")
-    write_rows(
-        edge_path,
-        edge_rows,
-        ["component_i", "component_j", "score", "abs_score", "contacts", "same_support", "opposite_support", "confidence"],
-    )
-    manifest = prefix.with_suffix(".manifest.tsv")
-    with manifest.open("w") as out:
-        out.write("key\tvalue\n")
-        out.write(f"component_edges\t{len(edge_rows)}\n")
-        out.write(f"contact_molecules\t{len(anchors)}\n")
-        out.write(f"region\t{args.region}\n")
-        out.write(f"contact_region\t{contact_region[0]}:{contact_region[1] + 1}-{contact_region[2]}\n")
-        out.write(f"edge_tsv\t{edge_path}\n")
-    print(manifest)
-
-
-if __name__ == "__main__":
-    main()
-
-
-__all__ = ["component_edges_from_anchors", "collect_anchors", "main", "remap_site_chroms"]
+__all__ = ["component_edges_from_anchors", "collect_anchors", "remap_site_chroms"]

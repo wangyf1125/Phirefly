@@ -3,7 +3,8 @@
 Phirefly phases heterozygous SNPs from long reads and extends phase sets with
 Hi-C contacts. It compresses read evidence into phaselets and hyperreads, then
 uses one CFC batch to sample the remaining orientations. Selection uses the
-original read objective. Phasing does not require a truth VCF.
+original read objective, with contact support when Hi-C is supplied. Phasing does
+not require a truth VCF.
 
 ## Installation
 
@@ -13,7 +14,7 @@ Linux x86-64, Python 3.11, CPU CFC:
 unset PYTHONPATH PYTHONHOME
 export PYTHONNOUSERSITE=1
 conda create -n phirefly --override-channels -c y1fei -c conda-forge \
-    -c bioconda python=3.11 y1fei::phirefly=0.2.1
+    -c bioconda python=3.11 y1fei::phirefly=0.2.2
 conda activate phirefly
 phirefly --version
 PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 bash \
@@ -34,9 +35,8 @@ separate BAM-to-VCF command measures the complete workflow.
 
 ## Usage
 
-In this source revision, `phirefly run --help` lists common options and
-`--help-all` includes advanced settings and defaults. The published Conda 0.2.1
-build still lists all options in `--help`. See [parameter notes](docs/parameters.md).
+`phirefly run --help` lists common options; `--help-all` includes advanced
+settings and defaults. See [parameter notes](docs/parameters.md).
 
 Input: an indexed, coordinate-sorted BAM and an indexed biallelic heterozygous
 SNP VCF on the same reference. Coordinates are 1-based, inclusive.
@@ -61,8 +61,11 @@ record. GPU execution requires --backend gpu-float32 and a configured GPU.
 
 ## Hi-C and Evaluation
 
-Hi-C is part of Phirefly: hic-edges, hic-orient and hic-apply extend the
-long-read phase sets using contact evidence. See the [Hi-C example](docs/hic.md).
+Supply `--hic-bam hic.bam` to solve long-read and contact evidence jointly in
+one CFC batch. Local phaselets remain mutable; retained contact links can join
+previously disconnected long-read components. See the [Hi-C example](docs/hic.md).
+The joint interface is included in version 0.2.2; older versions use a different
+Hi-C model. Use fresh output directories when changing versions.
 Use phirefly benchmark --help for truth-based evaluation. The Conda package
 includes its dependencies; pip installations need the benchmark extra.
 See [metric definitions](docs/reproducibility.md).

@@ -6,6 +6,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from ..hic.joint import add_hic_arguments
 
 
 def required_inputs(region_key: str, args: argparse.Namespace) -> dict[str, Path | str]:
@@ -28,8 +29,9 @@ def required_inputs(region_key: str, args: argparse.Namespace) -> dict[str, Path
         "input_vcf_plain": Path(args.input_vcf_plain) if args.input_vcf_plain else None,
         "truth_bcf": Path(args.truth_vcf) if args.truth_vcf else None,
         "tau_snp_phases": Path(args.tau_snp_phases),
+        "hic_bam": Path(args.hic_bam) if getattr(args, 'hic_bam', None) else None,
     }
-    for key in ("observations", "input_vcf_gz", "tau_snp_phases", "input_vcf_plain", "truth_bcf"):
+    for key in ("observations", "input_vcf_gz", "tau_snp_phases", "input_vcf_plain", "truth_bcf", "hic_bam"):
         path = inputs[key]
         if path is not None and not path.exists():
             raise SystemExit(f"missing {key}: {path}")
@@ -93,6 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weighted", action="store_true")
     parser.add_argument("--debug-output", action="store_true", help="Write detailed phaselet/hyperread debug TSVs.")
     parser.add_argument("--force", action="store_true")
+    add_hic_arguments(parser)
     return parser
 
 

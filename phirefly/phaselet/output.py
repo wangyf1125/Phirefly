@@ -75,6 +75,8 @@ def summarize_solution(args, data, solution, phaselets, metadata) -> dict:
     total_weight = float(abs(data.matrix).sum())
     compressed_score = float(np.abs(solution.hyper @ solution.z).sum()
                              + .5 * solution.z @ (solution.soft @ solution.z))
+    contact_score = float(.5*solution.z @ (solution.contact @ solution.z)) if solution.contact is not None else 0.0
+    compressed_score += contact_score
     sizes = np.asarray([p["n_snps"] for p in phaselets], dtype=np.int64)
     hyper = solution.hyper_stats
     return {
@@ -85,8 +87,8 @@ def summarize_solution(args, data, solution, phaselets, metadata) -> dict:
         "phaselet_config": str(args.phaselet_config_name),
         "parity_edge_source": str(args.parity_edges) if args.parity_edges is not None else "from_observations",
         "method": "phirefly_phaselet_hyperread_qaia",
-        "pipeline_revision": "single_cfc_v1",
-        "ps_policy": "retained_nonzero_couplings",
+        "pipeline_revision": "single_cfc_hic_joint_v1" if solution.contact is not None else "single_cfc_v1",
+        "ps_policy": "proposal_plus_contact_connectivity" if solution.contact is not None else "retained_nonzero_couplings",
         "retained_graph_components": len(np.unique(solution.ps)),
         "qaia_calls": 1,
         "qaia_relaxed_runtime_s": solution.qaia.runtime_s,
@@ -109,7 +111,8 @@ def summarize_solution(args, data, solution, phaselets, metadata) -> dict:
         **solution.soft_stats,
         "single_phaselet_constant": f"{hyper['single_phaselet_constant']:.8f}",
         "compressed_best_score": f"{compressed_score:.8f}",
-        "selection_score_best": f"{train_score + float(args.validation_weight) * validation_score:.8f}",
+        "selection_score_best": f"{train_score + float(args.validation_weight) * validation_score + contact_score:.8f}",
+        **({'hic_objective_best': contact_score} if solution.contact is not None else {}),
         "profiled_F_train_best": f"{train_score:.8f}",
         "profiled_F_validation_best": f"{validation_score:.8f}",
         "profiled_F_best": f"{raw_score:.8f}",
@@ -189,6 +192,7 @@ def write_config_metrics(outdir, inputs, args, summary, component_metrics, elaps
         "unique_couplings": summary["unique_couplings"],
         "graph_statistics_stage": "final; parity/risk classification fields describe initial partition",
         **{f"initial_{key}": summary[f"initial_{key}"] for key in INITIAL_GRAPH_FIELDS},
+        **{key: value for key, value in summary.items() if key.startswith('hic_') or key == 't_build_contacts'},
     }
     path = outdir / "config_metrics.tsv"
     write_rows(path, [config])
@@ -196,5 +200,7 @@ def write_config_metrics(outdir, inputs, args, summary, component_metrics, elaps
     print(f"Reads {summary['reads']:,}  SNPs {summary['snps']:,}  "
           f"Phaselets {summary['phaselets']:,}  Hyperreads {summary['hyperreads']:,}")
     print(f"Graph {summary['compressed_nodes']:,} nodes / {summary['unique_couplings']:,} unique couplings")
+    if 'hic_retained_couplings' in summary:
+        print(f"Hi-C {summary['hic_retained_couplings']:,} retained contact couplings")
     print(f"CFC {float(summary['qaia_runtime_s']):.3f} s  Phaselet workflow {elapsed:.2f} s")
     print(f"VCF: {config['phased_vcf']}\nDetails: {path}")

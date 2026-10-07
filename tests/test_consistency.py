@@ -62,3 +62,30 @@ def test_component_selection_matches_exhaustive_component_choices():
     best = max(np.abs(matrix @ np.r_[samples[:2, a], samples[2:, b]]).sum()
                for a in range(9) for b in range(9))
     assert np.abs(matrix @ z).sum() == best
+
+
+def test_contact_selection_survives_cancelled_proposal_coupling():
+    projected = sparse.eye(2, format='csr')
+    samples = np.array([[1, 1], [1, -1]])
+    contact = sparse.csr_matrix([[0., 1.], [1., 0.]])
+    z, labels, mode = select_component_candidates(projected, samples,
+        sparse.csr_matrix((2, 2)), 0, pair_coupling=contact)
+    assert mode == 'component_joint_evidence'
+    assert labels[0] == labels[1]
+    assert np.array_equal(z, [1, 1])
+    assert np.abs(projected @ z).sum()+.5*z @ (contact @ z) == 3
+
+
+def test_joint_selection_matches_exhaustive_component_choices():
+    rng = np.random.default_rng(6)
+    projected = sparse.block_diag([[[2., -1.]], [[1., 3.]]], format='csr')
+    contact = sparse.block_diag([[[0., -2.], [-2., 0.]],
+                                 [[0., 1.], [1., 0.]]], format='csr')
+    samples = rng.choice([-1, 1], size=(4, 7))
+    z, _, _ = select_component_candidates(projected, samples, abs(contact), 0,
+                                         pair_coupling=contact)
+    def score(s):
+        return np.abs(projected @ s).sum()+.5*s @ (contact @ s)
+    best = max(score(np.r_[samples[:2, a], samples[2:, b]])
+               for a in range(7) for b in range(7))
+    assert score(z) == best

@@ -4,6 +4,10 @@ This staged HG002 MHC example contains 12,259 reads, 10,200 observed SNPs and
 498,889 observations. It exercises single-round phaselet/hyperread solving and
 indexed VCF export, not BAM extraction.
 
+The bundled backbone is rebuilt from these observations with the current MSF
+implementation. `data/backbone_manifest.json` and `SHA256SUMS` identify the inputs
+and generated phases. Earlier staged phases are not a regression reference.
+
 ~~~sh
 python -I -m pip install '.[qaia]'
 bash examples/mhc_smoke/run_mhc_smoke.sh

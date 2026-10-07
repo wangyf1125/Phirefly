@@ -34,9 +34,6 @@ phirefly-extract = "phirefly.extract.cli:main"
 phirefly-msf = "phirefly.msf:main"
 phirefly-vcf = "phirefly.vcf:main"
 phirefly-phaselet-qaia = "phirefly.phaselet.cli:main"
-phirefly-hic-edges = "phirefly.hic.component_edges:main"
-phirefly-hic-orient = "phirefly.hic.orient:main"
-phirefly-hic-apply = "phirefly.hic.apply:main"
 phirefly-hic-qc = "phirefly.hic.qc:main"
 
 [tool.setuptools.packages.find]

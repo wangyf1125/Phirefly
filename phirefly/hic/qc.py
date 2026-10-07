@@ -36,8 +36,8 @@ def edge_summary(rows: list[dict[str, str]], min_contacts: int, min_confidence: 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--edges", required=True)
-    parser.add_argument("--min-contacts", type=int, default=20)
-    parser.add_argument("--min-confidence", type=float, default=0.8)
+    parser.add_argument("--min-contacts", type=int, default=1)
+    parser.add_argument("--min-confidence", type=float, default=0.0)
     parser.add_argument("--min-abs-score", type=float, default=0.0)
     parser.add_argument("--out-tsv", default=None)
     return parser

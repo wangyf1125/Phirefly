@@ -5,11 +5,22 @@ Public release and Bioconda availability are separate from local tests.
 
 ## Version 0.2.2
 
-This patch adds concise common-option help, --help-all and parameter notes,
-fixes selection of the active Python in the MHC smoke script, and includes a
-full-chromosome staged chr1 example with checksums and measured resource tables.
-The inference algorithm and default settings are unchanged. Validation and
-remote-channel publication must finish before advertising a new Conda install.
+This version adds concise help, --help-all, an isolated installed-package smoke,
+and a full-chromosome staged chr1 example. Long-read inference is unchanged.
+Hi-C now couples released phaselets jointly in the same single CFC batch;
+the preceding fixed-PS interface is removed. The bundled MHC backbone is rebuilt
+from its observations and checked against the current MSF implementation.
+
+On 7 October 2026, build 1 passed 43 tests outside the checkout, installed CPU
+CFC, joint synthetic BAM/Hi-C-to-indexed-VCF, and MHC/chr1 examples. The MHC
+example gave 26/10176 switches and 19/10199 Hamming disagreements. These are
+not the old cached-backbone results. All 22 fresh H100 joint Hi-C workflows
+and 22 independent memory executions completed; their error counts, phased-site
+counts and PB-N50 agree between timing and memory runs. Full-precision research
+results are archived separately from the source package.
+
+Build 2 incorporates the final documentation without changing inference code.
+Remote-channel installation and GitHub CI remain separate release gates.
 
 Version 0.2.1 changes runtime preflight, installed-package smoke isolation,
 terminal summaries and reporting fields. It does not change the phasing

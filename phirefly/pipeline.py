@@ -28,6 +28,7 @@ from .extract.sites import load_het_snps
 from .msf import solve_msf_backbone, write_solution as write_msf_solution
 from .phaselet.runner import run_phaselet_qaia
 from .vcf import resolve_sample
+from .hic.joint import HiCConfig, add_hic_arguments
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -89,8 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trace-output", type=Path, default=None, help="Custom trace TSV path; otherwise logs/solver_trace.tsv when tracing is enabled.")
     parser.add_argument("--debug-output", action="store_true", help="Write detailed graph tables and arrays; increases output size and I/O.")
     parser.add_argument("--force", action="store_true", help="Recompute in an existing output directory; not a resume operation.")
+    add_hic_arguments(parser)
     return compact_help(parser, {'bam', 'vcf', 'sample', 'region', 'out_dir',
-                                'backend', 'threads', 'seed', 'debug_output', 'force'})
+                                'backend', 'threads', 'seed', 'debug_output', 'force', 'hic_bam'})
 
 
 def phaselet_args(args: argparse.Namespace, observations_npz: Path, parity_edges: Path, tau_phases: Path, phaselet_out: Path, sample: str | None) -> SimpleNamespace:
@@ -150,12 +152,20 @@ def phaselet_args(args: argparse.Namespace, observations_npz: Path, parity_edges
         trace_every=args.trace_every,
         trace_output=args.trace_output,
         force=args.force,
+        hic_bam=args.hic_bam,
+        hic_config=HiCConfig.from_args(args),
+        hic_chrom_alias=args.hic_chrom_alias,
     )
 
 
 def run_pipeline(args: argparse.Namespace) -> None:
     out_dir = Path(args.out_dir)
     require_fresh_output(out_dir, args.force)
+    if args.hic_bam:
+        import pysam
+        with pysam.AlignmentFile(str(args.hic_bam), 'rb') as bam:
+            if not bam.has_index():
+                raise ValueError(f'Hi-C BAM must be indexed: {args.hic_bam}')
     tools = check_runtime(args.bgzip, args.tabix)
     args.bgzip, args.tabix = tools["bgzip"], tools["tabix"]
     args.sample = resolve_sample(args.vcf, args.sample)
@@ -227,11 +237,14 @@ def write_run_manifest(out_dir: Path, args: argparse.Namespace, sample: str | No
         except PackageNotFoundError:
             continue
     inputs = {}
-    for name in ("bam", "vcf"):
+    for name in ("bam", "vcf", "hic_bam"):
+        if not getattr(args, name, None):
+            continue
         path = Path(getattr(args, name)).resolve()
         stat = path.stat()
         inputs[name] = dict(path=str(path), size_bytes=stat.st_size, mtime_ns=stat.st_mtime_ns)
-    manifest = dict(phirefly_version=__version__, pipeline_revision="single_cfc_v1",
+    revision = 'single_cfc_hic_joint_v1' if args.hic_bam else 'single_cfc_v1'
+    manifest = dict(phirefly_version=__version__, pipeline_revision=revision,
                     python=sys.version, sample=sample, arguments=vars(args),
                     dependencies=dependencies, inputs=inputs, source_sha256=sources,
                     input_identity="path/size/mtime, not a content checksum")

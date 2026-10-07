@@ -4,6 +4,8 @@ recursive-include packaging *.in
 recursive-include packaging *.yaml *.py *.md *.sh
 recursive-include tests *.py
 recursive-include examples/mhc_smoke *.sh *.md *.npz *.tsv *.vcf *.gz *.tbi *.bcf *.csi
+include examples/mhc_smoke/data/backbone_manifest.json
+include examples/mhc_smoke/SHA256SUMS
 prune examples/mhc_smoke/output
 recursive-include examples/chr1 *.sh *.md *.npz *.tsv *.csv *.gz *.tbi *.bcf *.csi
 include examples/chr1/SHA256SUMS

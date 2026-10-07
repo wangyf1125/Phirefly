@@ -1,0 +1,15 @@
+{
+  "method": "solve_msf_backbone(load_observations(npz, False, weight))",
+  "unit_weight": true,
+  "truth_used": false,
+  "files": {
+    "phirefly_reads.observations.npz": "34b93d3cdaff00398a99f42f85270f8e3b6bb320c084c1b584fade0ecee6f0fa",
+    "phirefly_reads.msf.snp_phases.tsv": "091bc75abef8d5c5f34dfeeb1c012496e2fcca50f0c4f347c7650150f9409f40"
+  },
+  "source_sha256": {
+    "phirefly/msf.py": "ccd5d7cd738ec99f1cecc521c16620ff18454f767e36975c13e74f92081896e3",
+    "phirefly/core/matrix.py": "69b38e0c1eb01708cf3ffa963d14487469452a136ffb8214b28336532f821137",
+    "phirefly/extract/parity.py": "4c4475114e696115d6fb3ac2521e33f7a7e0f8f87129c6fa5c64f3cf71334b46"
+  },
+  "observed_snps": 10200
+}

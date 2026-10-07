@@ -14,6 +14,7 @@ from ..core.runtime import check_runtime
 from ..core.matrix import build_matrix, load_npz_graph, load_observations
 from ..core.spins import sign_keep_zero
 from ..hyperread.build import build_read_entries, split_read_entries
+from ..hic.joint import HiCConfig, build_hic_coupling
 from ..vcf import export_component_vcf, load_phases, resolve_sample
 from .build import build_phaselets, load_parity_edges
 from .config import parse_args, required_inputs
@@ -75,7 +76,8 @@ def build_initial_phaselets(data, args):
 def prepare_output(args, region_key) -> Path:
     outdir = Path(args.outroot) / region_key / f"alg_{args.algorithm}" / f"phaselet_{args.phaselet_config_name}"
     cached = outdir / "phirefly/phaselet_hyperread_qaia.summary.tsv"
-    if not args.force and cached.exists() and read_key_value(cached).get("pipeline_revision") != "single_cfc_v1":
+    if not args.force and cached.exists() and read_key_value(cached).get("pipeline_revision") not in {
+            "single_cfc_v1", "single_cfc_hic_joint_v1"}:
         raise ValueError("Existing output is not single-round CFC; use a fresh directory or --force")
     require_fresh_output(outdir, args.force)
     for name in ("phirefly", "logs", "paper_metrics"):
@@ -125,12 +127,27 @@ def run_phaselet_qaia(args) -> None:
     stage_started = time.monotonic()
     ids, phaselets, margins = relax_phaselets(data.train_matrix, data.tau, data.snp_ids, edges)
     metadata["t_read_consistency"] = time.monotonic() - stage_started
+    contact = None
+    if getattr(args, 'hic_bam', None):
+        stage_started = time.monotonic()
+        config = getattr(args, 'hic_config', None) or HiCConfig.from_args(args)
+        evidence = build_hic_coupling(args.hic_bam, inputs['region'], data.matrix,
+            data.snp_ids, data.tau, ids, config, args.hic_chrom_alias)
+        contact = evidence.coupling
+        metadata.update(evidence.stats, t_build_contacts=time.monotonic()-stage_started)
+        if args.debug_output:
+            from ..hic.component_edges import write_rows
+            keys = ['component_i', 'component_j', 'score', 'abs_score', 'contacts',
+                    'same_support', 'opposite_support', 'confidence', 'normalized_coupling']
+            write_rows(outdir/'hic_contacts.tsv', evidence.edges, keys)
+            sparse.save_npz(outdir/'hic_coupling.npz', contact)
     trace = (args.trace_output or outdir / "logs/solver_trace.tsv") if args.trace_every > 0 else None
     row_weights = (np.where(data.train_mask, 1.0, float(args.validation_weight))
                    if data.validation_matrix is not None else None)
     solution = solve_stage(
         data.train_entries, data.matrix, data.snp_ids, data.tau, ids, phaselets,
-        soft_edges, args, row_weights=row_weights, trace_output=trace, stage="relaxed")
+        soft_edges, args, row_weights=row_weights, trace_output=trace, stage="relaxed",
+        contact_coupling=contact)
     metadata.update(solution.timings)
 
     released = 0

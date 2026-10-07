@@ -8,7 +8,7 @@ source:
   path: {{ environ["PHIREFLY_SOURCE_DIR"] }}
 
 build:
-  number: 0
+  number: 2
   noarch: python
   script: |
     "$PYTHON" -m pip install . --no-deps --no-build-isolation --no-index -vv
@@ -22,9 +22,6 @@ build:
     - phirefly-msf = phirefly.msf:main
     - phirefly-vcf = phirefly.vcf:main
     - phirefly-phaselet-qaia = phirefly.phaselet.cli:main
-    - phirefly-hic-edges = phirefly.hic.component_edges:main
-    - phirefly-hic-orient = phirefly.hic.orient:main
-    - phirefly-hic-apply = phirefly.hic.apply:main
     - phirefly-hic-qc = phirefly.hic.qc:main
 
 requirements:

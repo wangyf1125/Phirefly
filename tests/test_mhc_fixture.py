@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pysam
+import numpy as np
 
 
 def test_bundled_mhc_truth():
@@ -17,3 +18,16 @@ def test_bundled_mhc_truth():
     with pysam.VariantFile(str(data / 'shared.snps.vcf.gz')) as source:
         shared = {(r.chrom, r.pos, r.ref, r.alts) for r in source.fetch('chr6', 28510119, 33480577)}
     assert shared and shared <= keys
+
+
+def test_bundled_backbone_is_current_msf_not_an_opaque_cached_phase():
+    from phirefly.core.matrix import load_observations
+    from phirefly.msf import solve_msf_backbone
+    from phirefly.vcf import load_phases
+
+    data = Path(__file__).resolve().parents[1]/'examples/mhc_smoke/data'
+    observations = load_observations(str(data/'phirefly_reads.observations.npz'), False, 'weight')
+    _, snps, _, _, tau, _, _ = solve_msf_backbone(observations)
+    saved = load_phases(data/'phirefly_reads.msf.snp_phases.tsv')
+    assert set(saved) == set(snps)
+    np.testing.assert_array_equal([saved[s] for s in snps], tau)

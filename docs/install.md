@@ -5,15 +5,15 @@ MindQuantum 0.12; these bounds are recorded in pyproject.toml.
 
 ## Personal Conda channel
 
-Version 0.2.1 is available from y1fei for Linux x86-64 with Python 3.11.
-An empty-environment remote installation passed 32 tests, installed CPU CFC,
-the MHC truth evaluation and a synthetic Hi-C workflow on 28 September 2026.
+Version 0.2.2 targets Linux x86-64 with Python 3.11. Release checks cover
+CPU CFC, joint synthetic BAM/Hi-C-to-VCF, and the installed MHC and chr1 examples.
+Validation records and package checksums are retained with each build.
 
 ~~~sh
 unset PYTHONPATH PYTHONHOME
 export PYTHONNOUSERSITE=1
 conda create -n phirefly --override-channels -c y1fei -c conda-forge \
-    -c bioconda python=3.11 y1fei::phirefly=0.2.1
+    -c bioconda python=3.11 y1fei::phirefly=0.2.2
 conda activate phirefly
 phirefly --version
 PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 bash \

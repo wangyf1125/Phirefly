@@ -28,9 +28,9 @@ export PYTHONNOUSERSITE=1
 export WORK=/absolute/path/to/new-build
 mkdir -p "$WORK/source"
 python -I -m build --sdist --outdir "$WORK/dist"
-sha256sum "$WORK/dist/phirefly-0.2.1.tar.gz"
-tar -xzf "$WORK/dist/phirefly-0.2.1.tar.gz" -C "$WORK/source"
-export PHIREFLY_SOURCE_DIR="$WORK/source/phirefly-0.2.1"
+sha256sum "$WORK/dist/phirefly-0.2.2.tar.gz"
+tar -xzf "$WORK/dist/phirefly-0.2.2.tar.gz" -C "$WORK/source"
+export PHIREFLY_SOURCE_DIR="$WORK/source/phirefly-0.2.2"
 conda build packaging/conda/rich --override-channels -c conda-forge \
     --croot "$WORK/build" --output-folder "$WORK/channel" --no-anaconda-upload
 conda index "$WORK/channel"
@@ -43,14 +43,14 @@ conda build packaging/conda/phirefly --override-channels \
     --croot "$WORK/build" --output-folder "$WORK/channel" --no-anaconda-upload
 conda index "$WORK/channel"
 conda create -p "$WORK/clean-env" --override-channels \
-    -c "file://$WORK/channel" -c conda-forge -c bioconda python=3.11 phirefly=0.2.1
+    -c "file://$WORK/channel" -c conda-forge -c bioconda python=3.11 phirefly=0.2.2
 conda run -p "$WORK/clean-env" phirefly --version
 conda run -p "$WORK/clean-env" env PHIREFLY_BENCHMARK=1 \
     bash "$WORK/clean-env/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" "$WORK/mhc-test"
 ~~~
 
 The package build runs tests including a real CPU CFC batch, a tiny BAM-to-VCF
-workflow, and Hi-C contact-BAM/edge/orientation/apply commands. Run the MHC smoke
+workflow, and joint long-read/Hi-C BAM-to-VCF inference. Run the MHC smoke
 again from the clean environment outside the source checkout before uploading.
 Keep package hashes, dependency records and logs alongside the source archive.
 

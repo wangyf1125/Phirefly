@@ -16,9 +16,6 @@ COMMANDS = {
     "phaselet-qaia": "phaselet.cli",
     "vcf": "vcf",
     "benchmark": "metrics",
-    "hic-edges": "hic.component_edges",
-    "hic-orient": "hic.orient",
-    "hic-apply": "hic.apply",
     "hic-qc": "hic.qc",
 }
 

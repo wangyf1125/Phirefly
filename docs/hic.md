@@ -1,27 +1,34 @@
 # Hi-C
 
-Run after long-read phasing. The contact BAM must use the same reference and
-sample. Components follow the supplied phase-set identifiers, not a separately
-reconstructed read graph. Only groups joined by retained contact evidence share
-a new PS; disconnected groups are not merged to increase contiguity.
+Provide indexed, coordinate-sorted long-read and Hi-C BAMs from the same sample
+and reference. Version 0.2.2 jointly solves their evidence; older versions use
+a different model and their outputs must not be reused implicitly.
 
-~~~sh
-P=out/chr20/phaselet_qaia/phirefly/alg_CFC/phaselet_risk0p45_soft0p75_s0p25
-O=out/chr20/extract/phirefly_reads.observations.npz
-H=out/chr20/hic/phirefly
-phirefly hic-edges --observations "$O" --snp-phases "$P/snp_phases.tsv" \
-    --contact-bam hic.bam --region chr20:1-64444167 --out-prefix "$H"
-phirefly hic-orient --edges "$H.block_edges.tsv" --out-prefix "$H.msf" \
-    --min-contacts 20 --min-confidence 0.8
-phirefly hic-apply --input-vcf het_sites.vcf.gz --sample SAMPLE \
-    --observations "$O" --snp-phases "$P/snp_phases.tsv" \
-    --component-orientations "$H.msf.component_orientations.tsv" \
-    --region chr20:1-64444167 --output-vcf out/chr20/phirefly.hic.vcf
-bgzip -c out/chr20/phirefly.hic.vcf > out/chr20/phirefly.hic.vcf.gz
-tabix -p vcf out/chr20/phirefly.hic.vcf.gz
-~~~
+```sh
+phirefly run --bam reads.bam --hic-bam hic.bam \
+    --vcf het_sites.vcf.gz --sample HG002 --region chr20:1-64444167 \
+    --out-dir out/chr20-hic --backend cpu-float32 --threads 8
+```
 
-Orientation uses a maximum-spanning forest. This optimizes the selected forest,
-not the complete cyclic contact graph. A long PS span is not independently
-validated long-range accuracy. Report source libraries, filtering, join evidence
-and evaluation scope with any Hi-C result.
+Hi-C anchors require primary, nonduplicate, QC-passing alignments, mapping
+quality >=20 and SNP base quality >=13. Missing base qualities are excluded.
+Each alignment contributes its strongest phaselet/sign anchor; distinct read
+names are counted once per phaselet pair. Paired names ending in /1 or /2 are
+normalized to the same name.
+
+Anchor strength is the absolute local allele sum times capped MQ/60. A pair
+uses the smaller endpoint strength (floor 0.1) and their sign product.
+Signed aggregate support is scaled by 0.1 and capped at absolute weight 10.
+Links between original long-read components require at least 20 external
+contact read names at each component. This is not a PCR-independence guarantee.
+The corresponding options appear in `phirefly run --help-all`.
+
+One CFC batch proposes orientations. Selection scores original long-read
+evidence plus retained contact support, without truth labels. The method does
+not lock the entire original long-read PS as one variable. Only graph-connected
+groups share a new PS; disconnected sites are not joined to inflate N50.
+
+Use `--debug-output` for `hic_contacts.tsv` and `hic_coupling.npz`.
+`qaia_summary.tsv`, `config_metrics.tsv` and `run_manifest.json` record the
+contact configuration and source identity. Do not confuse a long PS span with
+overlap-split phase-block N50 or independently validated long-range accuracy.

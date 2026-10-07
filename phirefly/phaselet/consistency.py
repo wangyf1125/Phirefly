@@ -43,37 +43,51 @@ def relax_phaselets(matrix, tau, snp_ids, edge_rows):
     return ids, phaselets, margin
 
 
-def select_component_candidates(projected, samples, coupling, n_hyper, row_weights=None):
+def select_component_candidates(projected, samples, coupling, n_hyper, row_weights=None, pair_coupling=None):
     """Select existing candidates, never change a spin within a candidate component.
 
     A held-out read can couple training components. In that case use global
     selection rather than incorrectly assuming the validation objective separates.
     """
-    count, labels = connected_components(coupling, directed=False)
+    graph = coupling
+    if pair_coupling is not None and pair_coupling.nnz:
+        graph = abs(coupling).tolil()
+        graph[n_hyper:, n_hyper:] = graph[n_hyper:, n_hyper:]+abs(pair_coupling)
+        graph = graph.tocsr()
+    count, labels = connected_components(graph, directed=False)
     phase_labels = labels[n_hyper:]
     fields = np.abs(projected @ samples)
     if row_weights is not None:
         fields *= np.asarray(row_weights)[:, None]
+    pair_fields = (.5*samples*(pair_coupling @ samples)) if pair_coupling is not None else None
     row_labels = np.full(projected.shape[0], -1, dtype=np.int64)
     for r in range(projected.shape[0]):
         ids = projected.indices[projected.indptr[r]:projected.indptr[r+1]]
         if len(ids):
             components = phase_labels[ids]
             if np.any(components != components[0]):
-                best = int(fields.sum(axis=0).argmax())
+                scores = fields.sum(axis=0)
+                if pair_fields is not None:
+                    scores += pair_fields.sum(axis=0)
+                best = int(scores.argmax())
                 return samples[:, best], phase_labels, 'global_nonseparable_validation'
             row_labels[r] = components[0]
     scores = np.zeros((count, samples.shape[1]), dtype=float)
     active = row_labels >= 0
     np.add.at(scores, row_labels[active], fields[active])
+    if pair_fields is not None:
+        np.add.at(scores, phase_labels, pair_fields)
     choices = scores.argmax(axis=1)
     selected = samples[np.arange(len(phase_labels)), choices[phase_labels]]
     observed = np.abs(projected @ selected)
     if row_weights is not None:
         observed *= row_weights
-    if not np.isclose(observed.sum(), scores.max(axis=1).sum()):
+    objective = observed.sum()
+    if pair_coupling is not None:
+        objective += .5*selected @ (pair_coupling @ selected)
+    if not np.isclose(objective, scores.max(axis=1).sum()):
         raise AssertionError('Component objective does not separate')
-    return selected, phase_labels, 'component_profiled_F'
+    return selected, phase_labels, 'component_joint_evidence' if pair_coupling is not None else 'component_profiled_F'
 
 
 @dataclass
@@ -91,21 +105,23 @@ class PhaseletSolution:
     ps: np.ndarray
     selection_mode: str
     timings: dict
+    contact: sparse.csr_matrix | None = None
 
 
 def solve_stage(entries, matrix, snp_ids, tau, ids, phaselets, soft_edges, args,
-                row_weights=None, trace_output=None, stage='relaxed'):
+                row_weights=None, trace_output=None, stage='relaxed', contact_coupling=None):
     started = time.monotonic()
     hyper, rows, edges, hs = build_hyperread_matrix(entries, tau, ids, len(phaselets),
         hyperread_norm=args.hyperread_norm, hyperread_cap=args.hyperread_cap,
         adaptive_dom_threshold=args.adaptive_dom_threshold)
     soft, soft_rows, soft_stats = build_soft_phaselet_coupling(soft_edges, ids, tau,
         len(phaselets), args.soft_edge_scale, args.soft_edge_cap)
-    coupling = build_ising_coupling(hyper, soft)
+    extra = soft+contact_coupling if contact_coupling is not None else soft
+    coupling = build_ising_coupling(hyper, extra)
     if coupling.shape[0] > args.max_qaia_nodes:
         raise ValueError(f'Compressed graph has {coupling.shape[0]} nodes; limit is {args.max_qaia_nodes}')
     build_seconds = time.monotonic()-started
-    result = solve_qaia(hyper, soft, args.algorithm, args.backend, args.batch_size,
+    result = solve_qaia(hyper, extra, args.algorithm, args.backend, args.batch_size,
         args.n_iter, .1, args.seed, args.seed_scale, args.seed_noise,
         trace_every=args.trace_every, trace_output=trace_output,
         trace_metadata={'region': str(args.region_key), 'solver': args.algorithm,
@@ -114,11 +130,12 @@ def solve_stage(entries, matrix, snp_ids, tau, ids, phaselets, soft_edges, args,
     started = time.monotonic()
     projected = project_matrix(matrix, ids, tau)
     samples = result.phaselet_spins
-    z, labels, mode = select_component_candidates(projected, samples, coupling, hyper.shape[0], row_weights)
+    z, labels, mode = select_component_candidates(projected, samples, coupling, hyper.shape[0], row_weights,
+                                                  pair_coupling=contact_coupling)
     positions = np.array([int(s.split(':')[1]) for s in snp_ids])
     minima = np.full(labels.max()+1, np.iinfo(np.int64).max, dtype=np.int64)
     np.minimum.at(minima, labels[ids], positions)
     return PhaseletSolution(hyper, rows, edges, hs, soft, soft_rows, soft_stats, result,
         tau*z[ids], z, minima[labels[ids]], mode,
         {f't_{stage}_build_graph': build_seconds,
-         f't_{stage}_candidate_scoring': time.monotonic()-started})
+         f't_{stage}_candidate_scoring': time.monotonic()-started}, contact_coupling)
