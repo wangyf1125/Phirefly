@@ -110,6 +110,6 @@ def test_joint_bam_to_vcf_solves_once_and_preserves_isolated_phase_set(tmp_path)
     assert summary['hic_min_molecules'] == '20'
     assert 'qaia_calls\t1\n' in next(out.rglob('qaia_summary.tsv')).read_text()
     manifest = json.loads((out/'run_manifest.json').read_text())
-    assert manifest['pipeline_revision'] == 'single_cfc_hic_joint_v1'
+    assert manifest['pipeline_revision'] == 'single_cfc_hic_energy_v1'
     assert manifest['inputs']['hic_bam']['path'] == str(hic)
     assert len(list(out.rglob('hic_coupling.npz'))) == 1

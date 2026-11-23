@@ -1,6 +1,11 @@
 # Release checks
 
-The source version is 0.2.2. Do not overwrite existing release tags or packages.
+## Version 0.2.3 (publication source)
+
+This version selects the lowest-energy sampled joint assignment per component,
+including contact couplings for joint Hi-C runs. Version 0.2.2 used original-read
+rescoring. Install v0.2.3 from the Git tag; the older Conda packages do not contain
+this change.
 Public release and Bioconda availability are separate from local tests.
 
 ## Version 0.2.2

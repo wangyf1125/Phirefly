@@ -77,8 +77,8 @@ def prepare_output(args, region_key) -> Path:
     outdir = Path(args.outroot) / region_key / f"alg_{args.algorithm}" / f"phaselet_{args.phaselet_config_name}"
     cached = outdir / "phirefly/phaselet_hyperread_qaia.summary.tsv"
     if not args.force and cached.exists() and read_key_value(cached).get("pipeline_revision") not in {
-            "single_cfc_v1", "single_cfc_hic_joint_v1"}:
-        raise ValueError("Existing output is not single-round CFC; use a fresh directory or --force")
+            "single_cfc_energy_v1", "single_cfc_hic_energy_v1"}:
+        raise ValueError("Existing output does not use energy selection; use a fresh directory or --force")
     require_fresh_output(outdir, args.force)
     for name in ("phirefly", "logs", "paper_metrics"):
         (outdir / name).mkdir(parents=True, exist_ok=True)

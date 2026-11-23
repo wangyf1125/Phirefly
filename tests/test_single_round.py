@@ -41,12 +41,13 @@ def test_single_call_after_release_and_old_cache_rejected(tmp_path, monkeypatch)
     assert events == ['release', 'CFC']
     out = args.outroot / 'phirefly/alg_CFC/phaselet_risk0p45_soft0p75_s0p25'
     summary = read_key_value(out / 'qaia_summary.tsv')
-    assert summary['pipeline_revision'] == 'single_cfc_v1'
+    assert summary['pipeline_revision'] == 'single_cfc_energy_v1'
+    assert summary['selection_objective'] == 'component_minimum_energy'
     assert summary['qaia_calls'] == '1'
     assert summary['candidate_count'] == '4'
     assert float(summary['qaia_runtime_s']) == 0.125
     assert 'qaia_initial_runtime_s' not in summary
     cache = out / 'phirefly/phaselet_hyperread_qaia.summary.tsv'
-    cache.write_text(cache.read_text().replace('single_cfc_v1', 'read_consistency_v1'))
-    with pytest.raises(ValueError, match='not single-round'):
+    cache.write_text(cache.read_text().replace('single_cfc_energy_v1', 'single_cfc_v1'))
+    with pytest.raises(ValueError, match='does not use energy selection'):
         runner.run_phaselet_qaia(args)

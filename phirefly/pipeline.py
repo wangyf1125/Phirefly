@@ -243,7 +243,7 @@ def write_run_manifest(out_dir: Path, args: argparse.Namespace, sample: str | No
         path = Path(getattr(args, name)).resolve()
         stat = path.stat()
         inputs[name] = dict(path=str(path), size_bytes=stat.st_size, mtime_ns=stat.st_mtime_ns)
-    revision = 'single_cfc_hic_joint_v1' if args.hic_bam else 'single_cfc_v1'
+    revision = 'single_cfc_hic_energy_v1' if args.hic_bam else 'single_cfc_energy_v1'
     manifest = dict(phirefly_version=__version__, pipeline_revision=revision,
                     python=sys.version, sample=sample, arguments=vars(args),
                     dependencies=dependencies, inputs=inputs, source_sha256=sources,

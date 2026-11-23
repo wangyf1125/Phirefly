@@ -84,7 +84,7 @@ def test_bam_to_indexed_vcf_without_truth(tmp_path, threads, capsys):
     assert "phaselets\t2\n" in summary
     assert "hyperreads\t1\n" in summary
     manifest = json.loads((out / "run_manifest.json").read_text())
-    assert manifest["pipeline_revision"] == "single_cfc_v1"
+    assert manifest["pipeline_revision"] == "single_cfc_energy_v1"
     assert manifest["arguments"]["truth_vcf"] is None
     assert manifest["source_sha256"]["qaia.py"]
     assert not list(out.rglob("hyperread_matrix.npz"))

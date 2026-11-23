@@ -1,10 +1,11 @@
 # Reproducibility
 
-The inference revision is single_cfc_v1: reads and original MSF signs first
-release suspect internal constraints, then one CFC batch samples the resulting
-graph. Candidate selection uses the original read objective, independently only
-where it separates. The public defaults remain 100 candidates, 1000 iterations
-and seed 23. Solver-control experiments do not change these defaults.
+Publication tag: `v0.2.3`. The default CFC run uses 100 candidates, 1,000
+iterations and seed 23. For each component Phirefly selects the sampled
+hyperread labels and phaselet orientations with the lowest energy. Ties retain
+the first sample. The revision is `single_cfc_energy_v1` for long reads and
+`single_cfc_hic_energy_v1` with Hi-C. Original-read scores in the output are
+diagnostics, not selection criteria.
 
 Use a fresh output directory after changing inputs or parameters. The --force
 option recomputes all stages; it is not a resume operation. The output manifest
@@ -31,18 +32,20 @@ Do not substitute a span N50 when block statistics are missing.
 ## Timing and Validation
 
 Paper E2E begins with staged BAM/VCF and ends with indexed VCF, excluding queueing,
-alignment, variant calling and evaluation. Phirefly Core measures the solver;
-comparator Core scopes differ. Pipeline timings include optional evaluation if
+alignment, variant calling and evaluation. Paper Core time runs from native
+solver initialization through inference; for GPU methods it includes transfers,
+readback and synchronization. Final selection and export are outside Core.
+The CLI's CFC call time alone is not the paper's Core time. Pipeline timings include optional evaluation if
 --truth-vcf is supplied, so do not use that mode for the paper's phasing E2E.
 
 The single-round HG002 baseline and fresh Hi-C workflows completed 22 autosomes.
 A separate CFC/LQA follow-up completed 220 fresh executions at 3000 iterations
 and five seeds per solver. It does not replace the default 1000-iteration result.
-Validation on independent samples with this revision remains outstanding.
+The transfer tests cover chromosomes 20 and 22 of HG005 HiFi and HG002 nanopore.
 
-IBM hardware experiments sample the fixed final graph using QAOA and retain
-classical preprocessing and selection. They are research experiments outside
-the release CLI, not evidence of quantum advantage or a dependency of Phirefly.
+The paper also sampled components from all 22 HG002 autosomes on D-Wave
+(3,904 components) and IBM (3,903). These hardware experiments used the same
+minimum-energy rule; the release CLI runs CFC and does not submit QPU jobs.
 
 ## Output records
 

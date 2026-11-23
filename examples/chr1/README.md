@@ -5,7 +5,7 @@ It contains 565,291 reads, 168,950 SNPs and 8,293,236 read-SNP observations.
 The final graph has 1,919 phaselets, 1,965 hyperreads and 7,995 unique couplings.
 Input files are checked against SHA256SUMS before solving.
 
-From a cloned repository, with the Phirefly 0.2.1 Conda environment active:
+From the v0.2.3 checkout, with Phirefly installed as in the project README:
 
 ~~~sh
 PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 \
@@ -18,9 +18,7 @@ Use a fresh output directory. The example defaults to CPU CFC, batch 100,
 configured GPU installation. Evaluation is optional and never feeds the solver.
 The result and benchmark_metrics.tsv are under
 out/chr1-example/chr1/alg_CFC/phaselet_risk0p45_soft0p75_s0p25/.
-This example is in the Git repository and the 0.2.2 source archive. It is not
-bundled in Conda 0.2.1 build 0. The 0.2.2 recipe installs it under
-share/phirefly/examples/chr1; package publication is a separate release step.
+The example is included in the Git checkout.
 
 ## Scope and resources
 
@@ -41,7 +39,8 @@ the staged phaselet workflow took 67.63 s. Four CPUs and 16 GiB were allocated;
 these are one run's measurements, not minimum resource requirements or a GPU
 speed comparison. The sample SE/HE counts are in benchmark_reference.tsv and
 benchmark_reference.csv. They are a reproducibility record, not strict
-cross-platform pass/fail thresholds.
+cross-platform pass/fail thresholds. These files predate minimum-energy selection
+and are not expected outputs for v0.2.3.
 
 To measure complete BAM-to-VCF resources, provide the original indexed BAM:
 

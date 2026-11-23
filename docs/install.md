@@ -3,7 +3,9 @@
 Use Python 3.10 or 3.11. The tested numerical path uses NumPy 1.x and
 MindQuantum 0.12; these bounds are recorded in pyproject.toml.
 
-## Personal Conda channel
+For the paper, use the [v0.2.3 source installation](../README.md#installation).
+
+## Historical 0.2.2 Conda installation
 
 Version 0.2.2 targets Linux x86-64 with Python 3.11. Release checks cover
 CPU CFC, joint synthetic BAM/Hi-C-to-VCF, and the installed MHC and chr1 examples.
@@ -34,7 +36,7 @@ PHIREFLY_PYTHON setting above instead of reinstalling.
 
 ## Conda plus pip
 
-From the cloned repository:
+From the v0.2.3 checkout:
 
 ~~~sh
 unset PYTHONPATH PYTHONHOME

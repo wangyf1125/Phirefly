@@ -2,29 +2,31 @@
 
 Phirefly phases heterozygous SNPs from long reads and extends phase sets with
 Hi-C contacts. It compresses read evidence into phaselets and hyperreads, then
-uses one CFC batch to sample the remaining orientations. Selection uses the
-original read objective, with contact support when Hi-C is supplied. Phasing does
-not require a truth VCF.
+samples phaselet orientations and hyperread labels together. For each connected
+component it keeps the sampled assignment with the lowest Ising energy. Hi-C
+contacts, when supplied, are included in that energy. Phasing does not use a
+truth VCF.
 
 ## Installation
 
-Linux x86-64, Python 3.11, CPU CFC:
+To run the publication version (v0.2.3) with the CPU CFC sampler:
 
 ~~~sh
 unset PYTHONPATH PYTHONHOME
 export PYTHONNOUSERSITE=1
-conda create -n phirefly --override-channels -c y1fei -c conda-forge \
-    -c bioconda python=3.11 y1fei::phirefly=0.2.2
+git clone --branch v0.2.3 https://github.com/wangyf1125/Phirefly.git
+cd Phirefly
+conda env create -f environment.yml
 conda activate phirefly
+python -m pip install '.[qaia,benchmark]'
 phirefly --version
 PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 bash \
-    "$CONDA_PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" out/mhc
+    examples/mhc_smoke/run_mhc_smoke.sh out/mhc
 ~~~
 
-The [y1fei personal channel](https://anaconda.org/y1fei/phirefly) provides
-Phirefly and its required MindQuantum/Rich builds. Conda installs all dependencies,
-including htslib and WhatsHap; no separate pip step is needed. This is not a
-Bioconda release. The bundled MHC example includes HG002 truth for HE/SE checks.
+The older 0.2.2 installation uses a different selection rule. In v0.2.3,
+`qaia_summary.tsv` reports `selection_objective=component_minimum_energy`
+(as a key/value row). The bundled MHC example includes HG002 truth for HE/SE checks.
 See [installation notes](docs/install.md) for source installation and GPU support,
 and [packaging/conda](packaging/conda/README.md) for recipes.
 
@@ -62,13 +64,12 @@ record. GPU execution requires --backend gpu-float32 and a configured GPU.
 ## Hi-C and Evaluation
 
 Supply `--hic-bam hic.bam` to solve long-read and contact evidence jointly in
-one CFC batch. Local phaselets remain mutable; retained contact links can join
+one CFC batch. Contacts can change phaselet orientations, not their internal
+SNP phases. Retained contact links can join
 previously disconnected long-read components. See the [Hi-C example](docs/hic.md).
-The joint interface is included in version 0.2.2; older versions use a different
-Hi-C model. Use fresh output directories when changing versions.
-Use phirefly benchmark --help for truth-based evaluation. The Conda package
-includes its dependencies; pip installations need the benchmark extra.
-See [metric definitions](docs/reproducibility.md).
+Use a fresh output directory when changing versions. Use `phirefly benchmark
+--help` for truth-based evaluation.
+See [metric definitions](docs/reproducibility.md) and [publication data and offline quantum replay](publication/README.md).
 
 ## Development
 

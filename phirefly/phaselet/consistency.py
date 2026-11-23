@@ -90,6 +90,31 @@ def select_component_candidates(projected, samples, coupling, n_hyper, row_weigh
     return selected, phase_labels, 'component_joint_evidence' if pair_coupling is not None else 'component_profiled_F'
 
 
+def select_energy_candidates(coupling, eta, z, pair_coupling=None):
+    """Choose measured joint spins by energy; ties retain the first candidate."""
+    spins = np.vstack([eta, z])
+    if spins.ndim != 2 or not spins.shape[1] or not np.isin(spins, [-1, 1]).all():
+        raise ValueError('Expected a nonempty batch of binary spins')
+    if coupling.shape != (len(spins), len(spins)):
+        raise ValueError('Coupling and sample dimensions differ')
+    if (coupling-coupling.T).nnz or np.any(coupling.diagonal()):
+        raise ValueError('Expected symmetric couplings without self-interactions')
+    graph = coupling.copy()
+    graph.eliminate_zeros()
+    if pair_coupling is not None and pair_coupling.nnz:
+        # Keep the existing Hi-C phase-set boundaries when terms cancel.
+        graph = abs(graph).tolil()
+        graph[len(eta):, len(eta):] += abs(pair_coupling)
+        graph = graph.tocsr()
+    count, labels = connected_components(graph, directed=False)
+    energies = np.zeros((count, spins.shape[1]))
+    np.add.at(energies, labels, -.5*spins*(coupling @ spins))
+    choices = energies.argmin(axis=1)
+    selected = spins[np.arange(len(spins)), choices[labels]]
+    energy = float(energies[np.arange(count), choices].sum())
+    return selected[len(eta):], labels[len(eta):], energy
+
+
 @dataclass
 class PhaseletSolution:
     hyper: sparse.csr_matrix
@@ -106,6 +131,7 @@ class PhaseletSolution:
     selection_mode: str
     timings: dict
     contact: sparse.csr_matrix | None = None
+    selected_energy: float | None = None
 
 
 def solve_stage(entries, matrix, snp_ids, tau, ids, phaselets, soft_edges, args,
@@ -128,14 +154,12 @@ def solve_stage(entries, matrix, snp_ids, tau, ids, phaselets, soft_edges, args,
                         'seed': args.seed, 'batch_size': args.batch_size,
                         'nodes': coupling.shape[0]})
     started = time.monotonic()
-    projected = project_matrix(matrix, ids, tau)
-    samples = result.phaselet_spins
-    z, labels, mode = select_component_candidates(projected, samples, coupling, hyper.shape[0], row_weights,
-                                                  pair_coupling=contact_coupling)
+    z, labels, energy = select_energy_candidates(coupling, result.hyperread_spins,
+        result.phaselet_spins, pair_coupling=contact_coupling)
     positions = np.array([int(s.split(':')[1]) for s in snp_ids])
     minima = np.full(labels.max()+1, np.iinfo(np.int64).max, dtype=np.int64)
     np.minimum.at(minima, labels[ids], positions)
     return PhaseletSolution(hyper, rows, edges, hs, soft, soft_rows, soft_stats, result,
-        tau*z[ids], z, minima[labels[ids]], mode,
+        tau*z[ids], z, minima[labels[ids]], 'component_minimum_energy',
         {f't_{stage}_build_graph': build_seconds,
-         f't_{stage}_candidate_scoring': time.monotonic()-started}, contact_coupling)
+         f't_{stage}_candidate_scoring': time.monotonic()-started}, contact_coupling, energy)

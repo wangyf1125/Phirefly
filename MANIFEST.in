@@ -1,4 +1,5 @@
 include LICENSE README.md environment.yml
+recursive-include publication *.md *.py *.tsv *.json.gz
 recursive-include docs *.md
 recursive-include packaging *.in
 recursive-include packaging *.yaml *.py *.md *.sh

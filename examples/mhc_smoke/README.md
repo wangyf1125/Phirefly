@@ -46,13 +46,7 @@ This first completes the same phasing run, then evaluates it against the bundled
 truth. It prints HE/SE and their error counts/denominators, and writes
 benchmark_metrics.tsv beside the phased VCF. Evaluation is not included in
 phasing time. The phasing-only config_metrics.tsv remains free of truth metrics.
-The y1fei Conda package already includes WhatsHap 2.8 and these example files.
-It does not need a separate pip installation or repository checkout:
-
-~~~sh
-PHIREFLY_PYTHON="$CONDA_PREFIX/bin/python" PHIREFLY_BENCHMARK=1 bash \
-    "$CONDA_PREFIX/share/phirefly/examples/mhc_smoke/run_mhc_smoke.sh" out/mhc_evaluated
-~~~
+Use the installed v0.2.3 package when comparing with publication outputs.
 
 The truth files are data/truth.region.bcf and its .csi index: HG002 (NA24385),
 GRCh38, chr6:28510120-33480577 (1-based inclusive), extracted from
@@ -74,6 +68,6 @@ PHIREFLY_BACKEND=gpu-float32 PHIREFLY_BATCH_SIZE=100 PHIREFLY_N_ITER=1000 \
 ~~~
 
 GPU execution requires the gpu extra and a configured GPU environment.
-Inspect qaia_summary.tsv for pipeline_revision=single_cfc_v1 and qaia_calls=1.
+Inspect qaia_summary.tsv for pipeline_revision=single_cfc_energy_v1 and qaia_calls=1.
 Exact candidate scores can vary with the numerical backend. The qaia-marked
 tests also cover fresh synthetic BAM-to-VCF extraction and export.

@@ -4,7 +4,7 @@ from scipy import sparse
 
 from phirefly.phaselet.consistency import (
     project_matrix, read_consistency_margin, relax_phaselets,
-    select_component_candidates,
+    select_component_candidates, select_energy_candidates,
 )
 
 
@@ -89,3 +89,31 @@ def test_joint_selection_matches_exhaustive_component_choices():
     best = max(score(np.r_[samples[:2, a], samples[2:, b]])
                for a in range(7) for b in range(7))
     assert score(z) == best
+
+
+def test_energy_selection_uses_sampled_labels_not_optimized_labels():
+    coupling = sparse.csr_matrix([[0., 1., 2.], [1., 0., 0.], [2., 0., 0.]])
+    eta = np.array([[-1, 1]])
+    z = np.array([[1, 1], [1, -1]])
+    selected, _, energy = select_energy_candidates(coupling, eta, z)
+    # Energies are 3 and 1; optimizing eta would instead favor candidate 0.
+    assert np.array_equal(selected, [1, -1])
+    assert energy == 1
+
+
+def test_energy_selection_combines_components_and_breaks_ties_stably():
+    coupling = sparse.block_diag([[[0., 2.], [2., 0.]],
+                                  [[0., -1.], [-1., 0.]], [[0.]]], format='csr')
+    spins = np.array([[1, 1], [1, -1], [1, 1], [1, -1], [-1, 1]])
+    selected, labels, energy = select_energy_candidates(coupling, spins[:0], spins)
+    assert np.array_equal(selected, [1, 1, 1, -1, -1])
+    assert len(np.unique(labels)) == 3 and energy == -3
+
+
+def test_energy_selection_keeps_contact_connectivity_after_cancellation():
+    contact = sparse.csr_matrix([[0., 1.], [1., 0.]])
+    z = np.array([[1, -1], [-1, 1]])
+    selected, labels, energy = select_energy_candidates(
+        sparse.csr_matrix((2, 2)), z[:0], z, contact)
+    assert labels[0] == labels[1] and energy == 0
+    assert np.array_equal(selected, z[:, 0])
